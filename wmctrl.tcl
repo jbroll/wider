@@ -75,16 +75,15 @@ namespace eval wm {
     # List all windows managed by the window manager
     # Returns list of dicts with keys:
     #   id desktop pid x y w h instance class host title cmdline
-    # Uses xdotool for geometry (consistent across HiDPI), wmctrl for metadata
     proc windows {} {
         set result {}
-        set output [exec wmctrl -l -x -p]
+        set output [exec wmctrl -l -x -G -p]
         foreach line [split $output \n] {
             set parts [regexp -inline -all {\S+} $line]
-            if {[llength $parts] < 5} continue
+            if {[llength $parts] < 9} continue
 
-            lassign $parts id desktop pid class host
-            set title [join [lrange $parts 5 end] " "]
+            lassign $parts id desktop pid x y w h class host
+            set title [join [lrange $parts 9 end] " "]
 
             # Split class into instance.class
             set instance ""
@@ -100,11 +99,6 @@ namespace eval wm {
                     set pid $xpid
                 }
             }
-
-            # Get geometry from xdotool (consistent across HiDPI)
-            set geom [exec xdotool getwindowgeometry $id]
-            regexp {Position: (\d+),(\d+)} $geom -> x y
-            regexp {Geometry: (\d+)x(\d+)} $geom -> w h
 
             # Get command line from /proc
             set cmdline [get_cmdline $pid]
@@ -134,19 +128,18 @@ namespace eval wm {
         exec wmctrl -i -r $id -b $action,[join $args ,]
     }
 
-    # Calculate move offset for a window
-    # GTK windows (parent is root): no offset
-    # CSD windows (has _MOTIF_WM_HINTS): relative offset only
-    # SSD windows (server-side decorations): relative + frame_top
-    proc get_move_offset {id} {
-        # Check if parent is root (GTK/CSD with composited decorations)
+    # Determine window type and move offset
+    # Returns: {type off_x off_y}
+    # Types: gtk (needs /2), csd (relative offset), ssd (relative + frame_top)
+    proc get_window_type {id} {
+        # Check if parent is root (GTK window)
         set tree [exec xwininfo -id $id -tree]
         regexp {Parent window id: (0x[0-9a-f]+)} $tree -> parent
         set root_info [exec xwininfo -root]
         regexp {Window id: (0x[0-9a-f]+)} $root_info -> root_id
 
         if {$parent eq $root_id} {
-            return {0 0}
+            return {gtk 0 0}
         }
 
         # Get relative offset from xwininfo
@@ -166,7 +159,7 @@ namespace eval wm {
         } on error {} {}
 
         if {$has_csd} {
-            return [list $rel_x $rel_y]
+            return [list csd $rel_x $rel_y]
         }
 
         # SSD - add frame_top from _NET_FRAME_EXTENTS
@@ -177,40 +170,74 @@ namespace eval wm {
             set frame_top $t
         } on error {} {}
 
-        return [list $rel_x [expr {$rel_y + $frame_top}]]
+        return [list ssd $rel_x [expr {$rel_y + $frame_top}]]
     }
 
     # Move and optionally resize a window
-    # Uses xdotool for positioning with offset compensation
-    # Uses wmctrl for desktop switching
+    # Uses wmctrl with offset compensation based on window type
     # Forms:
     #   wm::move id x y                 - move only
     #   wm::move id desktop x y         - move to desktop and position
     #   wm::move id x y w h             - move and resize
     #   wm::move id desktop x y w h     - move to desktop, position and resize
     proc move {id args} {
-        lassign [get_move_offset $id] off_x off_y
+        lassign [get_window_type $id] type off_x off_y
 
+        # Calculate wmctrl coordinates
         switch [llength $args] {
             2 {
                 lassign $args x y
-                exec xdotool windowmove $id [expr {$x - $off_x}] [expr {$y - $off_y}]
+                if {$type eq "gtk"} {
+                    set wx [expr {$x / 2}]
+                    set wy [expr {$y / 2}]
+                } else {
+                    set wx [expr {$x - $off_x}]
+                    set wy [expr {$y - $off_y}]
+                }
+                exec wmctrl -i -r $id -e 0,$wx,$wy,-1,-1
             }
             3 {
                 lassign $args desktop x y
+                if {$type eq "gtk"} {
+                    set wx [expr {$x / 2}]
+                    set wy [expr {$y / 2}]
+                } else {
+                    set wx [expr {$x - $off_x}]
+                    set wy [expr {$y - $off_y}]
+                }
                 exec wmctrl -i -r $id -t $desktop
-                exec xdotool windowmove $id [expr {$x - $off_x}] [expr {$y - $off_y}]
+                exec wmctrl -i -r $id -e 0,$wx,$wy,-1,-1
             }
             4 {
                 lassign $args x y w h
-                exec xdotool windowmove $id [expr {$x - $off_x}] [expr {$y - $off_y}]
-                exec xdotool windowsize $id $w $h
+                if {$type eq "gtk"} {
+                    set wx [expr {$x / 2}]
+                    set wy [expr {$y / 2}]
+                    set ww [expr {$w / 2}]
+                    set wh [expr {$h / 2}]
+                } else {
+                    set wx [expr {$x - $off_x}]
+                    set wy [expr {$y - $off_y}]
+                    set ww $w
+                    set wh $h
+                }
+                exec wmctrl -i -r $id -e 0,$wx,$wy,$ww,$wh
             }
             5 {
                 lassign $args desktop x y w h
+                if {$type eq "gtk"} {
+                    set wx [expr {$x / 2}]
+                    set wy [expr {$y / 2}]
+                    set ww [expr {$w / 2}]
+                    set wh [expr {$h / 2}]
+                } else {
+                    set wx [expr {$x - $off_x}]
+                    set wy [expr {$y - $off_y}]
+                    set ww $w
+                    set wh $h
+                }
                 exec wmctrl -i -r $id -t $desktop
-                exec xdotool windowmove $id [expr {$x - $off_x}] [expr {$y - $off_y}]
-                exec xdotool windowsize $id $w $h
+                exec wmctrl -i -r $id -e 0,$wx,$wy,$ww,$wh
             }
             default {
                 error "usage: wm::move id ?desktop? x y ?w h?"
@@ -242,8 +269,6 @@ namespace eval wm {
 
             # Skip desktop icons and panels (desktop -1 = sticky)
             if {$wdesktop == -1} continue
-            # Skip ourselves
-            if {$winstance eq "wider" || $wclass eq "Wider.tcl"} continue
 
             lappend layout [dict create \
                 class $wclass \
@@ -297,9 +322,6 @@ namespace eval wm {
             set instance [dict get $win instance]
             set w [dict get $win w]
             set h [dict get $win h]
-
-            # Skip ourselves
-            if {$instance eq "wider" || $class eq "Wider.tcl"} continue
 
             # Find best match: same class, closest size
             set best_idx -1

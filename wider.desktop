@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=Wider
+Comment=Window layout save/restore utility
+Exec=wish /home/john/src/wider/wider.tcl
+Icon=/home/john/src/wider/wider.svg
+Terminal=false
+Categories=Utility;
