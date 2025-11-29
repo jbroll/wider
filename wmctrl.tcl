@@ -249,7 +249,6 @@ namespace eval wm {
     variable layout_file [file join $::env(HOME) .config wider layout.tcl]
 
     # Save current window layout to file
-    # Saves: class, instance, desktop, x, y, w, h for each window
     proc save {{filename ""}} {
         variable layout_file
         if {$filename eq ""} {
@@ -260,25 +259,11 @@ namespace eval wm {
         # Ensure directory exists
         file mkdir [file dirname $filename]
 
-        # Collect window data
-        set layout {}
-        foreach win [windows] {
-            set wclass [dict get $win class]
-            set winstance [dict get $win instance]
-            set wdesktop [dict get $win desktop]
-
-            # Skip desktop icons and panels (desktop -1 = sticky)
-            if {$wdesktop == -1} continue
-
-            lappend layout [dict create \
-                class $wclass \
-                instance $winstance \
-                desktop $wdesktop \
-                x [dict get $win x] \
-                y [dict get $win y] \
-                w [dict get $win w] \
-                h [dict get $win h]]
-        }
+        # Filter out sticky windows (desktop -1 = panels, desktop icons)
+        set layout [lmap win [windows] {
+            if {[dict get $win desktop] == -1} continue
+            set win
+        }]
 
         # Write to file
         set f [open $filename w]
