@@ -83,4 +83,12 @@ after idle {
     # Position: right edge minus window width minus margin (talkie is ~731 wide at x=5031)
     # Place wider to the left of where talkie typically sits
     wm geometry . +[expr {$sw - $ww - 800}]+50
+
+    # Set _NET_WM_PID so we can be identified for restart
+    after 100 {
+        set frame [wm frame .]
+        if {$frame ne "0x0"} {
+            exec xprop -id $frame -f _NET_WM_PID 32c -set _NET_WM_PID [pid]
+        }
+    }
 }
