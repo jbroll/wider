@@ -162,15 +162,17 @@ namespace eval wm {
             return [list csd $rel_x $rel_y]
         }
 
-        # SSD - add frame_top from _NET_FRAME_EXTENTS
+        # SSD - add frame extents from _NET_FRAME_EXTENTS
+        set frame_left 0
         set frame_top 0
         try {
             set extents [exec xprop -id $id _NET_FRAME_EXTENTS]
             regexp {(\d+),\s*(\d+),\s*(\d+),\s*(\d+)} $extents -> l r t b
+            set frame_left $l
             set frame_top $t
         } on error {} {}
 
-        return [list ssd $rel_x [expr {$rel_y + $frame_top}]]
+        return [list ssd [expr {$rel_x + $frame_left}] [expr {$rel_y + $frame_top}]]
     }
 
     # Move and optionally resize a window
