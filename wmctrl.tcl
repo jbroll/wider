@@ -55,17 +55,32 @@ namespace eval wm {
         }
     }
 
-    # Get command line for a process from /proc
-    # Returns empty string if PID is 0 or not accessible
-    proc get_cmdline {pid} {
-        if {$pid == 0} {return ""}
+    # Get command line for a window
+    # Checks WM_COMMAND (ICCCM) first, falls back to /proc/pid/cmdline
+    proc get_cmdline {id} {
+        # Check ICCCM WM_COMMAND property
+        set wm_cmd [xprop $id WM_COMMAND]
+        if {$wm_cmd ne ""} {
+            # WM_COMMAND format: { "arg0", "arg1", ... } - parse it
+            if {[regexp {\{(.+)\}} $wm_cmd -> args]} {
+                set cmdlist {}
+                foreach {full capture} [regexp -all -inline {"([^"]*)"} $args] {
+                    lappend cmdlist $capture
+                }
+                if {[llength $cmdlist] > 0} {
+                    return [join $cmdlist " "]
+                }
+            }
+        }
+        # Fall back to /proc cmdline via _NET_WM_PID
+        set pid [xprop $id _NET_WM_PID]
+        if {![string is integer -strict $pid] || $pid == 0} {return ""}
         set path "/proc/$pid/cmdline"
         if {![file exists $path]} {return ""}
         try {
             set f [open $path r]
             set data [read $f]
             close $f
-            # cmdline is null-separated, convert to space-separated
             return [string trimright [string map {\x00 " "} $data]]
         } on error {} {
             return ""
@@ -100,8 +115,8 @@ namespace eval wm {
                 }
             }
 
-            # Get command line from /proc
-            set cmdline [get_cmdline $pid]
+            # Get command line (WM_COMMAND or /proc fallback)
+            set cmdline [get_cmdline $id]
 
             lappend result [dict create \
                 id $id \
