@@ -1,6 +1,41 @@
-#!/usr/bin/env wish
+#!/usr/bin/env tclsh
 # wider.tcl - Window layout save/restore utility
+#
+# Usage:
+#   wider.tcl              - GUI mode
+#   wider.tcl --restore    - restore layout and exit
+#   wider.tcl --save       - save layout and exit
 
+source [file join [file dirname [info script]] wmctrl.tcl]
+
+# CLI mode - handle before loading Tk
+if {[llength $argv] > 0} {
+    switch -- [lindex $argv 0] {
+        --restore - -r {
+            set count [wm::restore]
+            puts "Restored $count windows"
+            exit 0
+        }
+        --save - -s {
+            set count [wm::save]
+            puts "Saved $count windows"
+            exit 0
+        }
+        --help - -h {
+            puts "Usage: wider.tcl \[--restore|--save\]"
+            puts "  --restore, -r  Restore window layout and exit"
+            puts "  --save, -s     Save window layout and exit"
+            puts "  (no args)      Run GUI"
+            exit 0
+        }
+        default {
+            puts stderr "Unknown option: [lindex $argv 0]"
+            exit 1
+        }
+    }
+}
+
+# GUI mode
 package require Tk
 
 # Single instance enforcement
@@ -29,8 +64,6 @@ proc handle_instance_request {sock addr port} {
 }
 
 check_single_instance
-
-source [file join [file dirname [info script]] wmctrl.tcl]
 
 # Main window setup
 wm title . "Wider"
