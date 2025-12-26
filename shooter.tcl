@@ -7,6 +7,7 @@
 #
 
 lappend auto_path [file dirname [info script]]
+lappend auto_path [file join [file dirname [info script]] lib]
 package require Tk
 package require xgetimage
 
