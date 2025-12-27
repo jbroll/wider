@@ -1,4 +1,4 @@
-Package xgetimage 0.2
+Package csd 0.2
 Meta platform linux-unknown-x86_64
 Meta build::date 2025-12-26
 Meta require {Tcl 8.6} Tk
@@ -8,8 +8,8 @@ Meta entrytclcommand {eval [list ::apply {dir {
     source [file join $dir critcl-rt.tcl]
     set path [file join $dir [::critcl::runtime::MapPlatform]]
     set ext [info sharedlibextension]
-    set lib [file join $path "xgetimage_critcl$ext"]
-    load $lib Xgetimage_critcl
-    package provide xgetimage 0.2
+    set lib [file join $path "csd$ext"]
+    load $lib Csd
+    package provide csd 0.2
 }} $dir]}
-Meta included critcl-rt.tcl linux-x86_64/xgetimage_critcl.so
+Meta included critcl-rt.tcl linux-x86_64/csd.so
