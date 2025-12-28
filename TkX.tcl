@@ -29,6 +29,84 @@ critcl::ccode {
     #include <stdlib.h>
     #include <string.h>
 
+    /* ========== Constants ========== */
+
+    #define NET_WM_MOVERESIZE_SIZE_TOPLEFT      0
+    #define NET_WM_MOVERESIZE_SIZE_TOP          1
+    #define NET_WM_MOVERESIZE_SIZE_TOPRIGHT     2
+    #define NET_WM_MOVERESIZE_SIZE_RIGHT        3
+    #define NET_WM_MOVERESIZE_SIZE_BOTTOMRIGHT  4
+    #define NET_WM_MOVERESIZE_SIZE_BOTTOM       5
+    #define NET_WM_MOVERESIZE_SIZE_BOTTOMLEFT   6
+    #define NET_WM_MOVERESIZE_SIZE_LEFT         7
+    #define NET_WM_MOVERESIZE_MOVE              8
+
+    /* ========== Common Window Info ========== */
+
+    typedef struct {
+        Display *dpy;
+        Window tkWin;
+        Window frameWin;
+        int offX, offY;     /* Offset from Tk window to frame */
+        int frameW, frameH; /* Frame window dimensions */
+    } WinInfo;
+
+    /* Walk up window tree to find frame and compute offset.
+     * Returns frame window and cumulative offset from win to frame. */
+    static Window WalkToFrame(Display *dpy, Window win, int *offX, int *offY) {
+        Window root = DefaultRootWindow(dpy);
+        Window parent, *children;
+        unsigned int nchildren;
+        XWindowAttributes attr;
+
+        *offX = 0;
+        *offY = 0;
+
+        while (1) {
+            if (!XQueryTree(dpy, win, &root, &parent, &children, &nchildren))
+                return win;
+            if (children) XFree(children);
+            if (parent == root)
+                return win;  /* This is the frame window */
+
+            /* Accumulate offset */
+            if (XGetWindowAttributes(dpy, win, &attr)) {
+                *offX += attr.x;
+                *offY += attr.y;
+            }
+            win = parent;
+        }
+    }
+
+    /* Get window info from Tk path. Returns TCL_OK or TCL_ERROR with message set. */
+    static int GetWinInfo(Tcl_Interp *interp, const char *winPath, WinInfo *info) {
+        Tk_Window tkwin = Tk_NameToWindow(interp, winPath, Tk_MainWindow(interp));
+        if (!tkwin) {
+            Tcl_SetObjResult(interp, Tcl_ObjPrintf("window \"%s\" not found", winPath));
+            return TCL_ERROR;
+        }
+
+        info->dpy = Tk_Display(tkwin);
+        info->tkWin = Tk_WindowId(tkwin);
+        if (info->tkWin == None) {
+            Tcl_SetResult(interp, "window not yet mapped", TCL_STATIC);
+            return TCL_ERROR;
+        }
+
+        info->frameWin = WalkToFrame(info->dpy, info->tkWin, &info->offX, &info->offY);
+
+        XWindowAttributes attr;
+        if (XGetWindowAttributes(info->dpy, info->frameWin, &attr)) {
+            info->frameW = attr.width;
+            info->frameH = attr.height;
+        } else {
+            info->frameW = 0;
+            info->frameH = 0;
+        }
+
+        return TCL_OK;
+    }
+
     /* ========== Capture ========== */
 
     static int DoCapture(Tcl_Interp *interp, const char *photoName,
@@ -41,7 +119,7 @@ critcl::ccode {
 
         Tk_Window tkwin = Tk_MainWindow(interp);
         if (!tkwin) {
-            Tcl_SetResult(interp, "No Tk main window", TCL_STATIC);
+            Tcl_SetResult(interp, "no Tk main window", TCL_STATIC);
             return TCL_ERROR;
         }
         Display *dpy = Tk_Display(tkwin);
@@ -70,7 +148,7 @@ critcl::ccode {
         unsigned char *data = (unsigned char *)ckalloc(w * h * 4);
         if (!data) {
             XDestroyImage(img);
-            Tcl_SetResult(interp, "Memory allocation failed", TCL_STATIC);
+            Tcl_SetResult(interp, "memory allocation failed", TCL_STATIC);
             return TCL_ERROR;
         }
 
@@ -105,149 +183,80 @@ critcl::ccode {
 
     /* ========== Shape ========== */
 
-    /* Find the WM frame window (parent of Tk window up to root) */
-    static Window GetFrameWindow(Display *dpy, Window win) {
-        Window root = DefaultRootWindow(dpy);
-        Window parent, *children;
-        unsigned int nchildren;
+    /* Build rectangles that cover everything except the hole.
+     * Returns number of rectangles (0-4). */
+    static int MakeHoleRects(XRectangle *rects, int ww, int wh,
+                             int hx, int hy, int hw, int hh) {
+        int n = 0;
 
-        while (1) {
-            if (!XQueryTree(dpy, win, &root, &parent, &children, &nchildren))
-                return win;
-            if (children) XFree(children);
-            if (parent == root)
-                return win;  /* This is the frame window */
-            win = parent;
+        /* Top strip */
+        if (hy > 0) {
+            rects[n].x = 0;
+            rects[n].y = 0;
+            rects[n].width = ww;
+            rects[n].height = hy;
+            n++;
         }
+        /* Bottom strip */
+        if (hy + hh < wh) {
+            rects[n].x = 0;
+            rects[n].y = hy + hh;
+            rects[n].width = ww;
+            rects[n].height = wh - (hy + hh);
+            n++;
+        }
+        /* Left strip (middle section only) */
+        if (hx > 0) {
+            rects[n].x = 0;
+            rects[n].y = hy;
+            rects[n].width = hx;
+            rects[n].height = hh;
+            n++;
+        }
+        /* Right strip (middle section only) */
+        if (hx + hw < ww) {
+            rects[n].x = hx + hw;
+            rects[n].y = hy;
+            rects[n].width = ww - (hx + hw);
+            rects[n].height = hh;
+            n++;
+        }
+        return n;
     }
 
-    /* Compute offset from a window to its frame window.
-     * Walks up the tree summing each window's position relative to its parent. */
-    static void GetFrameOffset(Display *dpy, Window win, int *off_x, int *off_y) {
-        Window root = DefaultRootWindow(dpy);
-        Window parent, *children;
-        unsigned int nchildren;
-        XWindowAttributes attr;
-
-        *off_x = 0;
-        *off_y = 0;
-
-        while (1) {
-            if (!XQueryTree(dpy, win, &root, &parent, &children, &nchildren))
-                return;
-            if (children) XFree(children);
-            if (parent == root)
-                return;  /* Reached the frame window */
-
-            /* Get this window's position relative to parent */
-            if (XGetWindowAttributes(dpy, win, &attr)) {
-                *off_x += attr.x;
-                *off_y += attr.y;
-            }
-            win = parent;
-        }
-    }
-
-    static int SetHole(Tcl_Interp *interp, const char *winPath,
-                       int kind, int hx, int hy, int hw, int hh) {
-        Tk_Window tkwin = Tk_NameToWindow(interp, winPath, Tk_MainWindow(interp));
-        if (!tkwin) {
-            Tcl_SetObjResult(interp, Tcl_ObjPrintf("window \"%s\" not found", winPath));
+    static int DoSetHole(Tcl_Interp *interp, const char *winPath,
+                         int kind, int hx, int hy, int hw, int hh) {
+        WinInfo wi;
+        if (GetWinInfo(interp, winPath, &wi) != TCL_OK)
             return TCL_ERROR;
-        }
 
-        Display *dpy = Tk_Display(tkwin);
-        Window tkWin = Tk_WindowId(tkwin);
-        if (tkWin == None) {
-            Tcl_SetResult(interp, "Window not yet mapped", TCL_STATIC);
-            return TCL_ERROR;
-        }
-
-        /* Get the WM frame window */
-        Window win = GetFrameWindow(dpy, tkWin);
-
-        /* Get frame window size */
-        XWindowAttributes attr;
-        if (!XGetWindowAttributes(dpy, win, &attr)) {
-            Tcl_SetResult(interp, "Cannot get window attributes", TCL_STATIC);
-            return TCL_ERROR;
-        }
-
-        int ww = attr.width;
-        int wh = attr.height;
-
-        /* Compute offset from Tk window to frame */
-        int off_x, off_y;
-        GetFrameOffset(dpy, tkWin, &off_x, &off_y);
-
-        /* Adjust hole position from Tk coords to frame coords */
-        hx += off_x;
-        hy += off_y;
+        /* Transform hole coords from Tk window to frame */
+        hx += wi.offX;
+        hy += wi.offY;
 
         XRectangle rects[4];
-        int nrects = 0;
+        int nrects = MakeHoleRects(rects, wi.frameW, wi.frameH, hx, hy, hw, hh);
 
-        if (hy > 0) {
-            rects[nrects].x = 0;
-            rects[nrects].y = 0;
-            rects[nrects].width = ww;
-            rects[nrects].height = hy;
-            nrects++;
-        }
-        if (hy + hh < wh) {
-            rects[nrects].x = 0;
-            rects[nrects].y = hy + hh;
-            rects[nrects].width = ww;
-            rects[nrects].height = wh - (hy + hh);
-            nrects++;
-        }
-        if (hx > 0) {
-            rects[nrects].x = 0;
-            rects[nrects].y = hy;
-            rects[nrects].width = hx;
-            rects[nrects].height = hh;
-            nrects++;
-        }
-        if (hx + hw < ww) {
-            rects[nrects].x = hx + hw;
-            rects[nrects].y = hy;
-            rects[nrects].width = ww - (hx + hw);
-            rects[nrects].height = hh;
-            nrects++;
-        }
-
-        XShapeCombineRectangles(dpy, win, kind, 0, 0,
+        XShapeCombineRectangles(wi.dpy, wi.frameWin, kind, 0, 0,
                                 rects, nrects, ShapeSet, Unsorted);
-        XFlush(dpy);
+        XFlush(wi.dpy);
 
         return TCL_OK;
     }
 
-    static int ResetShape(Tcl_Interp *interp, const char *winPath, int kind) {
-        Tk_Window tkwin = Tk_NameToWindow(interp, winPath, Tk_MainWindow(interp));
-        if (!tkwin) {
-            Tcl_SetObjResult(interp, Tcl_ObjPrintf("window \"%s\" not found", winPath));
+    static int DoResetShape(Tcl_Interp *interp, const char *winPath, int kind) {
+        WinInfo wi;
+        if (GetWinInfo(interp, winPath, &wi) != TCL_OK)
             return TCL_ERROR;
-        }
 
-        Display *dpy = Tk_Display(tkwin);
-        Window tkWin = Tk_WindowId(tkwin);
-        if (tkWin == None) {
-            Tcl_SetResult(interp, "Window not yet mapped", TCL_STATIC);
-            return TCL_ERROR;
-        }
-
-        /* Reset shape on the WM frame window */
-        Window win = GetFrameWindow(dpy, tkWin);
-        XShapeCombineMask(dpy, win, kind, 0, 0, None, ShapeSet);
-        XFlush(dpy);
+        XShapeCombineMask(wi.dpy, wi.frameWin, kind, 0, 0, None, ShapeSet);
+        XFlush(wi.dpy);
 
         return TCL_OK;
     }
 
     /* ========== ShapeNotify ========== */
 
-    /* State for shape notification callbacks */
     typedef struct ShapeWatch {
         Window frameWin;
         Tcl_Interp *interp;
@@ -260,91 +269,73 @@ critcl::ccode {
     static int shapeErrorBase = 0;
     static int shapeHandlerInstalled = 0;
 
-    /* Generic event handler to catch ShapeNotify */
     static int ShapeEventHandler(ClientData clientData, XEvent *eventPtr) {
+        (void)clientData;
         if (shapeEventBase == 0) return 0;
         if (eventPtr->type != shapeEventBase + ShapeNotify) return 0;
 
         XShapeEvent *shapeEvent = (XShapeEvent *)eventPtr;
         Window win = shapeEvent->window;
 
-        /* Find matching watch entry */
-        ShapeWatch *watch = shapeWatchList;
-        while (watch) {
-            if (watch->frameWin == win) {
-                /* Evaluate callback */
-                Tcl_EvalObjEx(watch->interp, watch->callback, TCL_EVAL_GLOBAL);
+        for (ShapeWatch *w = shapeWatchList; w; w = w->next) {
+            if (w->frameWin == win) {
+                Tcl_EvalObjEx(w->interp, w->callback, TCL_EVAL_GLOBAL);
                 return 1;
             }
-            watch = watch->next;
         }
         return 0;
     }
 
     static int DoShapeWatch(Tcl_Interp *interp, const char *winPath, Tcl_Obj *callback) {
-        Tk_Window tkwin = Tk_NameToWindow(interp, winPath, Tk_MainWindow(interp));
-        if (!tkwin) {
-            Tcl_SetObjResult(interp, Tcl_ObjPrintf("window \"%s\" not found", winPath));
+        WinInfo wi;
+        if (GetWinInfo(interp, winPath, &wi) != TCL_OK)
             return TCL_ERROR;
-        }
-
-        Display *dpy = Tk_Display(tkwin);
-        Window tkWin = Tk_WindowId(tkwin);
-        if (tkWin == None) {
-            Tcl_SetResult(interp, "Window not yet mapped", TCL_STATIC);
-            return TCL_ERROR;
-        }
 
         /* Initialize shape extension if needed */
         if (shapeEventBase == 0) {
-            if (!XShapeQueryExtension(dpy, &shapeEventBase, &shapeErrorBase)) {
+            if (!XShapeQueryExtension(wi.dpy, &shapeEventBase, &shapeErrorBase)) {
                 Tcl_SetResult(interp, "Shape extension not available", TCL_STATIC);
                 return TCL_ERROR;
             }
         }
 
-        /* Install generic handler if not already done */
+        /* Install handler once */
         if (!shapeHandlerInstalled) {
             Tk_CreateGenericHandler(ShapeEventHandler, NULL);
             shapeHandlerInstalled = 1;
         }
 
-        /* Get frame window */
-        Window frameWin = GetFrameWindow(dpy, tkWin);
-
-        /* Remove existing watch for this window if any */
-        ShapeWatch **prevPtr = &shapeWatchList;
-        ShapeWatch *watch = shapeWatchList;
-        while (watch) {
-            if (watch->frameWin == frameWin) {
-                *prevPtr = watch->next;
-                Tcl_DecrRefCount(watch->callback);
-                ckfree((char *)watch);
+        /* Remove existing watch for this window */
+        ShapeWatch **pp = &shapeWatchList;
+        while (*pp) {
+            ShapeWatch *w = *pp;
+            if (w->frameWin == wi.frameWin) {
+                *pp = w->next;
+                Tcl_DecrRefCount(w->callback);
+                ckfree((char *)w);
                 break;
             }
-            prevPtr = &watch->next;
-            watch = watch->next;
+            pp = &w->next;
         }
 
-        /* If callback is empty, just remove the watch */
+        /* Empty callback = just remove watch */
         int len;
         Tcl_GetStringFromObj(callback, &len);
         if (len == 0) {
-            XShapeSelectInput(dpy, frameWin, 0);
+            XShapeSelectInput(wi.dpy, wi.frameWin, 0);
             return TCL_OK;
         }
 
         /* Add new watch */
-        watch = (ShapeWatch *)ckalloc(sizeof(ShapeWatch));
-        watch->frameWin = frameWin;
-        watch->interp = interp;
-        watch->callback = callback;
+        ShapeWatch *w = (ShapeWatch *)ckalloc(sizeof(ShapeWatch));
+        w->frameWin = wi.frameWin;
+        w->interp = interp;
+        w->callback = callback;
         Tcl_IncrRefCount(callback);
-        watch->next = shapeWatchList;
-        shapeWatchList = watch;
+        w->next = shapeWatchList;
+        shapeWatchList = w;
 
-        /* Request ShapeNotify events */
-        XShapeSelectInput(dpy, frameWin, ShapeNotifyMask);
+        XShapeSelectInput(wi.dpy, wi.frameWin, ShapeNotifyMask);
 
         return TCL_OK;
     }
@@ -361,66 +352,67 @@ critcl::ccode {
 
     #define MWM_HINTS_DECORATIONS (1L << 1)
 
-    static int dir_to_edge(const char *dir) {
-        if (!strcmp(dir, "nw"))    return 0;
-        if (!strcmp(dir, "north")) return 1;
-        if (!strcmp(dir, "ne"))    return 2;
-        if (!strcmp(dir, "east"))  return 3;
-        if (!strcmp(dir, "se"))    return 4;
-        if (!strcmp(dir, "south")) return 5;
-        if (!strcmp(dir, "sw"))    return 6;
-        if (!strcmp(dir, "west"))  return 7;
-        return -1;
-    }
-
     static int DoNodecor(Tcl_Interp *interp, const char *winPath) {
-        Tk_Window tkwin = Tk_NameToWindow(interp, winPath, Tk_MainWindow(interp));
-        if (!tkwin) return TCL_ERROR;
+        WinInfo wi;
+        if (GetWinInfo(interp, winPath, &wi) != TCL_OK)
+            return TCL_ERROR;
 
-        Display *dpy = Tk_Display(tkwin);
-        Window win = Tk_WindowId(tkwin);
+        Atom prop = XInternAtom(wi.dpy, "_MOTIF_WM_HINTS", False);
 
-        Atom prop = XInternAtom(dpy, "_MOTIF_WM_HINTS", False);
-
-        MotifWmHints hints;
-        memset(&hints, 0, sizeof(hints));
+        MotifWmHints hints = {0};
         hints.flags = MWM_HINTS_DECORATIONS;
         hints.decorations = 0;
 
-        XChangeProperty(dpy, win, prop, prop, 32, PropModeReplace,
+        XChangeProperty(wi.dpy, wi.tkWin, prop, prop, 32, PropModeReplace,
                         (unsigned char *)&hints, 5);
-        XFlush(dpy);
+        XFlush(wi.dpy);
+
+        return TCL_OK;
+    }
+
+    static int dir_to_edge(const char *dir) {
+        static const struct { const char *name; int edge; } dirs[] = {
+            {"nw",    NET_WM_MOVERESIZE_SIZE_TOPLEFT},
+            {"north", NET_WM_MOVERESIZE_SIZE_TOP},
+            {"ne",    NET_WM_MOVERESIZE_SIZE_TOPRIGHT},
+            {"east",  NET_WM_MOVERESIZE_SIZE_RIGHT},
+            {"se",    NET_WM_MOVERESIZE_SIZE_BOTTOMRIGHT},
+            {"south", NET_WM_MOVERESIZE_SIZE_BOTTOM},
+            {"sw",    NET_WM_MOVERESIZE_SIZE_BOTTOMLEFT},
+            {"west",  NET_WM_MOVERESIZE_SIZE_LEFT},
+            {NULL, -1}
+        };
+        for (int i = 0; dirs[i].name; i++) {
+            if (!strcmp(dir, dirs[i].name)) return dirs[i].edge;
+        }
+        return -1;
+    }
+
+    static int DoMoveResize(Tcl_Interp *interp, const char *winPath, int action) {
+        WinInfo wi;
+        if (GetWinInfo(interp, winPath, &wi) != TCL_OK)
+            return TCL_ERROR;
+
+        Atom moveresize = XInternAtom(wi.dpy, "_NET_WM_MOVERESIZE", False);
+
+        XEvent ev = {0};
+        ev.xclient.type = ClientMessage;
+        ev.xclient.message_type = moveresize;
+        ev.xclient.display = wi.dpy;
+        ev.xclient.window = wi.tkWin;
+        ev.xclient.format = 32;
+        ev.xclient.data.l[2] = action;
+        ev.xclient.data.l[3] = Button1;
+
+        XSendEvent(wi.dpy, DefaultRootWindow(wi.dpy), False,
+                   SubstructureRedirectMask | SubstructureNotifyMask, &ev);
+        XFlush(wi.dpy);
 
         return TCL_OK;
     }
 
     static int DoMove(Tcl_Interp *interp, const char *winPath) {
-        Tk_Window tkwin = Tk_NameToWindow(interp, winPath, Tk_MainWindow(interp));
-        if (!tkwin) return TCL_ERROR;
-
-        Display *dpy = Tk_Display(tkwin);
-        Window win = Tk_WindowId(tkwin);
-
-        Atom moveresize = XInternAtom(dpy, "_NET_WM_MOVERESIZE", False);
-
-        XEvent ev;
-        memset(&ev, 0, sizeof(ev));
-        ev.xclient.type = ClientMessage;
-        ev.xclient.message_type = moveresize;
-        ev.xclient.display = dpy;
-        ev.xclient.window = win;
-        ev.xclient.format = 32;
-        ev.xclient.data.l[0] = 0;
-        ev.xclient.data.l[1] = 0;
-        ev.xclient.data.l[2] = 8;  /* _NET_WM_MOVERESIZE_MOVE */
-        ev.xclient.data.l[3] = Button1;
-        ev.xclient.data.l[4] = 0;
-
-        XSendEvent(dpy, DefaultRootWindow(dpy), False,
-                   SubstructureRedirectMask | SubstructureNotifyMask, &ev);
-        XFlush(dpy);
-
-        return TCL_OK;
+        return DoMoveResize(interp, winPath, NET_WM_MOVERESIZE_MOVE);
     }
 
     static int DoResize(Tcl_Interp *interp, const char *winPath, const char *direction) {
@@ -429,33 +421,7 @@ critcl::ccode {
             Tcl_SetResult(interp, "invalid direction: use nw north ne east se south sw west", TCL_STATIC);
             return TCL_ERROR;
         }
-
-        Tk_Window tkwin = Tk_NameToWindow(interp, winPath, Tk_MainWindow(interp));
-        if (!tkwin) return TCL_ERROR;
-
-        Display *dpy = Tk_Display(tkwin);
-        Window win = Tk_WindowId(tkwin);
-
-        Atom moveresize = XInternAtom(dpy, "_NET_WM_MOVERESIZE", False);
-
-        XEvent ev;
-        memset(&ev, 0, sizeof(ev));
-        ev.xclient.type = ClientMessage;
-        ev.xclient.message_type = moveresize;
-        ev.xclient.display = dpy;
-        ev.xclient.window = win;
-        ev.xclient.format = 32;
-        ev.xclient.data.l[0] = 0;
-        ev.xclient.data.l[1] = 0;
-        ev.xclient.data.l[2] = edge;
-        ev.xclient.data.l[3] = Button1;
-        ev.xclient.data.l[4] = 0;
-
-        XSendEvent(dpy, DefaultRootWindow(dpy), False,
-                   SubstructureRedirectMask | SubstructureNotifyMask, &ev);
-        XFlush(dpy);
-
-        return TCL_OK;
+        return DoMoveResize(interp, winPath, edge);
     }
 }
 
@@ -481,14 +447,14 @@ critcl::cproc TkX::input_hole {
     int width
     int height
 } ok {
-    return SetHole(interp, window, ShapeInput, x, y, width, height);
+    return DoSetHole(interp, window, ShapeInput, x, y, width, height);
 }
 
 critcl::cproc TkX::input_reset {
     Tcl_Interp* interp
     char* window
 } ok {
-    return ResetShape(interp, window, ShapeInput);
+    return DoResetShape(interp, window, ShapeInput);
 }
 
 # Shape - bounding
@@ -500,17 +466,17 @@ critcl::cproc TkX::bounding_hole {
     int width
     int height
 } ok {
-    return SetHole(interp, window, ShapeBounding, x, y, width, height);
+    return DoSetHole(interp, window, ShapeBounding, x, y, width, height);
 }
 
 critcl::cproc TkX::bounding_reset {
     Tcl_Interp* interp
     char* window
 } ok {
-    return ResetShape(interp, window, ShapeBounding);
+    return DoResetShape(interp, window, ShapeBounding);
 }
 
-# Shape notification - callback when shape changes
+# Shape notification
 critcl::cproc TkX::shape_watch {
     Tcl_Interp* interp
     char* window
