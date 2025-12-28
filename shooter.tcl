@@ -1,9 +1,9 @@
 #!/usr/bin/env tclsh
 #
-# shooter.tcl - Screenshot region capture using fake transparency
+# shooter.tcl - Screenshot region capture with Peek-style frame
 #
 # Uses xgetimage to capture root window as background (fake transparency)
-# Uses overrideredirect to bypass window manager (no decorations)
+# Creates an empty frame window where the desktop shows through
 #
 
 lappend auto_path [file dirname [info script]]
@@ -32,15 +32,21 @@ if {[file exists $configFile]} {
 }
 
 # ----------------------------
+# Constants
+# ----------------------------
+set BORDER 4         ;# Frame border thickness
+set TOOLBAR_H 32     ;# Bottom toolbar height
+
+# ----------------------------
 # State
 # ----------------------------
 array set S {
-    rect ""
     mode ""
     hx   0
     hy   0
-    ax   0
-    ay   0
+    lastX 0
+    lastY 0
+    border 0
 }
 
 # ----------------------------
@@ -53,213 +59,180 @@ set screenH [winfo screenheight .]
 # Start withdrawn, capture root, then show
 # ----------------------------
 wm withdraw .
-wm overrideredirect . 1
+wm title . "Screenshot"
 
 # Capture the root window BEFORE showing our window
 image create photo rootimg
 xgetimage::capture rootimg root 0 0 $screenW $screenH
 
-# Create canvas with root image as background
-canvas .c -highlightthickness 0 -width $screenW -height $screenH
-.c create image 0 0 -anchor nw -image rootimg -tags bg
+# ----------------------------
+# Build the frame-style window
+# ----------------------------
 
-pack .c -fill both -expand 1
+# Main container
+frame .main -bg #333333
 
-# Set geometry (overrideredirect bypasses WM entirely)
-wm geometry . ${screenW}x${screenH}+0+0
-update idletasks
+# Top border (draggable) - hidden by default
+frame .main.top -height $BORDER -bg #333333 -cursor fleur
+
+# Bottom area with toolbar
+frame .main.bottom -bg #333333
+
+# Left border - hidden by default
+frame .main.bottom.left -width $BORDER -bg #333333 -cursor fleur
+
+# Right border - hidden by default
+frame .main.bottom.right -width $BORDER -bg #333333 -cursor fleur
+
+# Center area (canvas + toolbar)
+frame .main.bottom.center -bg #333333
+
+# Canvas showing "through" to desktop
+set cw [dict get $region w]
+set ch [dict get $region h]
+canvas .main.bottom.center.c -highlightthickness 0 -width $cw -height $ch -bg black
+.main.bottom.center.c create image 0 0 -anchor nw -image rootimg -tags bg
+pack .main.bottom.center.c -side top -fill both -expand 1
+
+# Toolbar
+frame .main.bottom.center.toolbar -height $TOOLBAR_H -bg #333333
+set sizeVar "${cw} x ${ch}"
+entry .main.bottom.center.toolbar.size -textvariable sizeVar -font {Helvetica 12 bold} \
+    -width 12 -justify center -bg #222222 -fg white -relief flat -insertbackground white
+button .main.bottom.center.toolbar.capture -text "Capture" -command doCapture \
+    -bg #444444 -fg white -relief flat -padx 10
+button .main.bottom.center.toolbar.quit -text "Quit" -command doExit \
+    -bg #444444 -fg white -relief flat -padx 10
+button .main.bottom.center.toolbar.border -text "Border" -command toggleBorder \
+    -bg #444444 -fg white -relief flat -padx 10
+pack .main.bottom.center.toolbar.size -side left -padx 5 -pady 4
+pack .main.bottom.center.toolbar.border -side left -padx 5 -pady 4
+pack .main.bottom.center.toolbar.quit -side right -padx 5 -pady 4
+pack .main.bottom.center.toolbar.capture -side right -padx 5 -pady 4
+pack .main.bottom.center.toolbar -side bottom -fill x
+
+pack .main.bottom.center -side left -fill both -expand 1
+pack .main.bottom -side top -fill both -expand 1
+pack .main -fill both -expand 1
 
 # ----------------------------
-# Overlay - stippled rectangles for darkening
+# Position window and update background offset
 # ----------------------------
-.c create rectangle 0 0 0 0 -fill black -stipple gray50 -outline "" -tags {overlay otop}
-.c create rectangle 0 0 0 0 -fill black -stipple gray50 -outline "" -tags {overlay obot}
-.c create rectangle 0 0 0 0 -fill black -stipple gray50 -outline "" -tags {overlay oleft}
-.c create rectangle 0 0 0 0 -fill black -stipple gray50 -outline "" -tags {overlay oright}
+proc updateBgOffset {} {
+    global S screenW screenH BORDER sizeVar
 
-# ----------------------------
-# Handles (created once, coords updated)
-# ----------------------------
-foreach corner {tl tr bl br} {
-    .c create rectangle 0 0 0 0 -fill white -outline black -width 2 -tags [list handle $corner]
+    # Get window position on screen
+    set wx [winfo rootx .main.bottom.center.c]
+    set wy [winfo rooty .main.bottom.center.c]
+    set cw [winfo width .main.bottom.center.c]
+    set ch [winfo height .main.bottom.center.c]
+
+    # Update size display
+    set sizeVar "${cw} x ${ch}"
+
+    # Only update image offset if position changed
+    if {$wx == $S(lastX) && $wy == $S(lastY)} return
+    set S(lastX) $wx
+    set S(lastY) $wy
+
+    # Offset the background image so it aligns with the screen
+    .main.bottom.center.c coords bg [expr {-$wx}] [expr {-$wy}]
 }
 
-# ----------------------------
-# Size entry widget embedded in canvas
-# ----------------------------
-set sizeVar "500 x 400"
-frame .c.sizebox -bg black -padx 2 -pady 2
-entry .c.sizebox.e -textvariable sizeVar -font {Helvetica 18 bold} \
-    -width 12 -justify center -bg white -relief flat
-pack .c.sizebox.e
-set S(sizewin) [.c create window 0 0 -window .c.sizebox -tags sizeentry]
-
-# Apply size from entry when Return is pressed in the entry
-bind .c.sizebox.e <Return> {
-    if {[regexp {(\d+)\s*x\s*(\d+)} $sizeVar -> newW newH]} {
-        lassign [.c coords $S(rect)] x1 y1 x2 y2
-        # Keep top-left corner, adjust bottom-right
-        set nx1 [expr {min($x1,$x2)}]
-        set ny1 [expr {min($y1,$y2)}]
-        set nx2 [expr {$nx1 + $newW}]
-        set ny2 [expr {$ny1 + $newH}]
-        .c coords $S(rect) $nx1 $ny1 $nx2 $ny2
-        updateUI $nx1 $ny1 $nx2 $ny2
-        # Update region
-        dict set region x [expr {int($nx1)}]
-        dict set region y [expr {int($ny1)}]
-        dict set region w $newW
-        dict set region h $newH
-    }
-    focus .c
-}
-
-# Escape in entry returns focus to canvas
-bind .c.sizebox.e <Escape> {focus .c}
-
-# ----------------------------
-# Geometry helpers
-# ----------------------------
-proc normalize {x y w h} {
-    list $x $y [expr {$x+$w}] [expr {$y+$h}]
-}
-
-proc updateOverlay {x1 y1 x2 y2} {
-    global screenW screenH
-    # Ensure coords are ordered
-    if {$x1 > $x2} { set t $x1; set x1 $x2; set x2 $t }
-    if {$y1 > $y2} { set t $y1; set y1 $y2; set y2 $t }
-
-    .c coords otop   0 0 $screenW $y1
-    .c coords obot   0 $y2 $screenW $screenH
-    .c coords oleft  0 $y1 $x1 $y2
-    .c coords oright $x2 $y1 $screenW $y2
-}
-
-proc updateHandles {x1 y1 x2 y2} {
-    .c coords tl [expr {$x1-8}] [expr {$y1-8}] [expr {$x1+8}] [expr {$y1+8}]
-    .c coords tr [expr {$x2-8}] [expr {$y1-8}] [expr {$x2+8}] [expr {$y1+8}]
-    .c coords bl [expr {$x1-8}] [expr {$y2-8}] [expr {$x1+8}] [expr {$y2+8}]
-    .c coords br [expr {$x2-8}] [expr {$y2-8}] [expr {$x2+8}] [expr {$y2+8}]
-}
-
-proc updateUI {x1 y1 x2 y2} {
-    global S sizeVar
-
-    updateOverlay $x1 $y1 $x2 $y2
-    .c coords sel $x1 $y1 $x2 $y2
-    updateHandles $x1 $y1 $x2 $y2
-
-    # Calculate dimensions and update entry
-    set w [expr {int(abs($x2-$x1))}]
-    set h [expr {int(abs($y2-$y1))}]
-    set sizeVar "${w} x ${h}"
-
-    # Position entry in center of selection
-    set cx [expr {($x1+$x2)/2}]
-    set cy [expr {($y1+$y2)/2}]
-    .c coords $S(sizewin) $cx $cy
-
-    # Ensure proper stacking order
-    .c raise sel
-    .c raise handle
-    .c raise sizeentry
-}
-
-# ----------------------------
-# Initial rectangle
-# ----------------------------
-lassign [normalize \
-    [dict get $region x] \
-    [dict get $region y] \
-    [dict get $region w] \
-    [dict get $region h]] x1 y1 x2 y2
-
-set S(rect) [.c create rectangle $x1 $y1 $x2 $y2 \
-    -outline white -width 3 -tags sel]
-
-updateUI $x1 $y1 $x2 $y2
-
-# ----------------------------
-# Mouse logic
-# ----------------------------
-proc insideSelection {px py} {
-    global S
-    if {$S(rect) eq ""} { return 0 }
-    lassign [.c coords $S(rect)] x1 y1 x2 y2
-    if {$x1 > $x2} { set t $x1; set x1 $x2; set x2 $t }
-    if {$y1 > $y2} { set t $y1; set y1 $y2; set y2 $t }
-    expr {$px >= $x1 && $px <= $x2 && $py >= $y1 && $py <= $y2}
-}
-
-bind .c <ButtonPress-1> {
-    set S(hx) %x
-    set S(hy) %y
-    set id [.c find withtag current]
-    set tags [.c gettags $id]
-
-    if {[lsearch $tags handle] >= 0} {
-        set S(mode) resize
-        lassign [.c coords $S(rect)] x1 y1 x2 y2
-        if {[lsearch $tags tl] >= 0} {
-            set S(ax) $x2; set S(ay) $y2
-        } elseif {[lsearch $tags tr] >= 0} {
-            set S(ax) $x1; set S(ay) $y2
-        } elseif {[lsearch $tags bl] >= 0} {
-            set S(ax) $x2; set S(ay) $y1
-        } elseif {[lsearch $tags br] >= 0} {
-            set S(ax) $x1; set S(ay) $y1
-        }
-    } elseif {[insideSelection %x %y]} {
-        set S(mode) move
+# Toggle border visibility
+proc toggleBorder {} {
+    global S BORDER
+    set S(border) [expr {!$S(border)}]
+    if {$S(border)} {
+        pack .main.top -side top -fill x -before .main.bottom
+        pack .main.bottom.left -side left -fill y -before .main.bottom.center
+        pack .main.bottom.right -side right -fill y -before .main.bottom.center
     } else {
-        # Click outside selection/handles - do nothing
+        pack forget .main.top
+        pack forget .main.bottom.left
+        pack forget .main.bottom.right
+    }
+}
+
+# Initial geometry (no border by default)
+set wx [dict get $region x]
+set wy [dict get $region y]
+set ww [dict get $region w]
+set wh [expr {[dict get $region h] + $TOOLBAR_H}]
+wm geometry . ${ww}x${wh}+${wx}+${wy}
+
+# ----------------------------
+# Track window movement via Configure events
+# ----------------------------
+bind . <Configure> {
+    after cancel updateBgOffset
+    after idle updateBgOffset
+}
+
+# ----------------------------
+# Dragging from borders
+# ----------------------------
+foreach w {.main.top .main.bottom.left .main.bottom.right} {
+    bind $w <ButtonPress-1> {
+        set S(mode) drag
+        set S(hx) %X
+        set S(hy) %Y
+    }
+    bind $w <B1-Motion> {
+        if {$S(mode) ne "drag"} return
+        set dx [expr {%X - $S(hx)}]
+        set dy [expr {%Y - $S(hy)}]
+        set geom [wm geometry .]
+        regexp {(\d+)x(\d+)\+(-?\d+)\+(-?\d+)} $geom -> gw gh gx gy
+        wm geometry . ${gw}x${gh}+[expr {$gx+$dx}]+[expr {$gy+$dy}]
+        set S(hx) %X
+        set S(hy) %Y
+    }
+    bind $w <ButtonRelease-1> {
         set S(mode) ""
     }
 }
 
-bind .c <B1-Motion> {
-    if {$S(mode) eq ""} return
+# ----------------------------
+# Resize from corners (optional - use WM decorations for now)
+# ----------------------------
 
-    set dx [expr {%x - $S(hx)}]
-    set dy [expr {%y - $S(hy)}]
-
-    switch $S(mode) {
-        resize {
-            .c coords $S(rect) $S(ax) $S(ay) %x %y
-        }
-        move {
-            .c move $S(rect) $dx $dy
-        }
+# ----------------------------
+# Size entry
+# ----------------------------
+bind .main.bottom.center.toolbar.size <Return> {
+    if {[regexp {(\d+)\s*x\s*(\d+)} $sizeVar -> newW newH]} {
+        global BORDER TOOLBAR_H region
+        set ww [expr {$newW + 2*$BORDER}]
+        set wh [expr {$newH + $BORDER + $TOOLBAR_H}]
+        set geom [wm geometry .]
+        regexp {\+(-?\d+)\+(-?\d+)} $geom -> gx gy
+        wm geometry . ${ww}x${wh}+${gx}+${gy}
+        .main.bottom.center.c configure -width $newW -height $newH
+        dict set region w $newW
+        dict set region h $newH
     }
-
-    set S(hx) %x
-    set S(hy) %y
-
-    lassign [.c coords $S(rect)] x1 y1 x2 y2
-    updateUI $x1 $y1 $x2 $y2
-}
-
-bind .c <ButtonRelease-1> {
-    lassign [.c coords $S(rect)] x1 y1 x2 y2
-    set x [expr {int(min($x1,$x2))}]
-    set y [expr {int(min($y1,$y2))}]
-    set w [expr {int(abs($x2-$x1))}]
-    set h [expr {int(abs($y2-$y1))}]
-    dict set region x $x
-    dict set region y $y
-    dict set region w $w
-    dict set region h $h
+    focus .
 }
 
 # ----------------------------
 # Capture - recapture live root
 # ----------------------------
 proc doCapture {} {
-    global region outDir configFile screenW screenH
+    global region outDir configFile screenW screenH BORDER TOOLBAR_H
 
     set ts [clock format [clock seconds] -format "%Y-%m-%d-%H:%M:%S"]
     set out [file join $outDir "screenshot-$ts.png"]
+
+    # Update region from current window position/size
+    set x [winfo rootx .main.bottom.center.c]
+    set y [winfo rooty .main.bottom.center.c]
+    set w [winfo width .main.bottom.center.c]
+    set h [winfo height .main.bottom.center.c]
+    dict set region x $x
+    dict set region y $y
+    dict set region w $w
+    dict set region h $h
 
     # Hide our window
     wm withdraw .
@@ -271,11 +244,6 @@ proc doCapture {} {
     xgetimage::capture liveroot root 0 0 $screenW $screenH
 
     # Crop to selection region
-    set x [dict get $region x]
-    set y [dict get $region y]
-    set w [dict get $region w]
-    set h [dict get $region h]
-
     image create photo cropped
     cropped copy liveroot -from $x $y [expr {$x+$w}] [expr {$y+$h}]
 
@@ -307,6 +275,12 @@ proc saveConfig {} {
 }
 
 proc doExit {} {
+    global region
+    # Update region from current window position/size
+    dict set region x [winfo rootx .main.bottom.center.c]
+    dict set region y [winfo rooty .main.bottom.center.c]
+    dict set region w [winfo width .main.bottom.center.c]
+    dict set region h [winfo height .main.bottom.center.c]
     saveConfig
     exit
 }
@@ -321,10 +295,9 @@ proc doSave {imgname out} {
 # ----------------------------
 wm deiconify .
 wm attributes . -topmost 1
-tkwait visibility .c
-focus -force .c
-grab set -global .c
+update idletasks
+after idle updateBgOffset
 
-bind .c <Return> doCapture
-bind .c <Escape> doExit
-bind .c <Key-q> doExit
+bind . <Return> doCapture
+bind . <Escape> doExit
+bind . <Key-q> doExit
