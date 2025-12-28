@@ -4,17 +4,13 @@
 CRITCL_PATH = ../critcl/lib
 CRITCL = TCLLIBPATH=$(CRITCL_PATH) critcl
 
-all: xgetimage csd
+all: TkX
 
-# Build xgetimage using critcl
-xgetimage: xgetimage.tcl
-	$(CRITCL) -pkg -libdir lib xgetimage.tcl
-
-# Build csd using critcl
-csd: csd.tcl
-	$(CRITCL) -pkg -libdir lib csd.tcl
+# Build TkX (combined X11 extensions) using critcl
+TkX: TkX.tcl
+	$(CRITCL) -pkg -libdir lib TkX.tcl
 
 clean:
-	rm -rf lib/xgetimage lib/csd
+	rm -rf lib/TkX
 
-.PHONY: all clean xgetimage csd
+.PHONY: all clean TkX

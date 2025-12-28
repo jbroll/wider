@@ -2,14 +2,14 @@
 #
 # shooter.tcl - Screenshot region capture with Peek-style frame
 #
-# Uses xgetimage to capture root window as background (fake transparency)
-# Creates an empty frame window where the desktop shows through
+# Uses X11 Shape extension for true transparency (with compositor)
+# Falls back to fake transparency (root image copy) if needed
 #
 
 lappend auto_path [file dirname [info script]]
 lappend auto_path [file join [file dirname [info script]] lib]
 package require Tk
-package require xgetimage
+package require TkX
 
 # ----------------------------
 # Paths
@@ -34,8 +34,7 @@ if {[file exists $configFile]} {
 # ----------------------------
 # Constants
 # ----------------------------
-set BORDER 4         ;# Frame border thickness
-set TOOLBAR_H 32     ;# Bottom toolbar height
+set TOOLBAR_H 32     ;# Toolbar height
 
 # ----------------------------
 # State
@@ -46,7 +45,9 @@ array set S {
     hy   0
     lastX 0
     lastY 0
+    display "shape"
     border 0
+    applyingShape 0
 }
 
 # ----------------------------
@@ -61,9 +62,9 @@ set screenH [winfo screenheight .]
 wm withdraw .
 wm title . "Screenshot"
 
-# Capture the root window BEFORE showing our window
+# Capture the root window for fake transparency fallback
 image create photo rootimg
-xgetimage::capture rootimg root 0 0 $screenW $screenH
+TkX::capture rootimg root 0 0 $screenW $screenH
 
 # ----------------------------
 # Build the frame-style window
@@ -72,60 +73,54 @@ xgetimage::capture rootimg root 0 0 $screenW $screenH
 # Main container
 frame .main -bg #333333
 
-# Top border (draggable) - hidden by default
-frame .main.top -height $BORDER -bg #333333 -cursor fleur
-
-# Bottom area with toolbar
-frame .main.bottom -bg #333333
-
-# Left border - hidden by default
-frame .main.bottom.left -width $BORDER -bg #333333 -cursor fleur
-
-# Right border - hidden by default
-frame .main.bottom.right -width $BORDER -bg #333333 -cursor fleur
-
-# Center area (canvas + toolbar)
-frame .main.bottom.center -bg #333333
-
 # Canvas showing "through" to desktop
 set cw [dict get $region w]
 set ch [dict get $region h]
-canvas .main.bottom.center.c -highlightthickness 0 -width $cw -height $ch -bg black
-.main.bottom.center.c create image 0 0 -anchor nw -image rootimg -tags bg
-pack .main.bottom.center.c -side top -fill both -expand 1
+canvas .main.c -highlightthickness 0 -width $cw -height $ch -bg black
+.main.c create image 0 0 -anchor nw -image rootimg -tags bg
+pack .main.c -side top -fill both -expand 1
 
 # Toolbar
-frame .main.bottom.center.toolbar -height $TOOLBAR_H -bg #333333
+frame .main.toolbar -height $TOOLBAR_H -bg #333333
 set sizeVar "${cw} x ${ch}"
-entry .main.bottom.center.toolbar.size -textvariable sizeVar -font {Helvetica 12 bold} \
+entry .main.toolbar.size -textvariable sizeVar -font {Helvetica 12 bold} \
     -width 12 -justify center -bg #222222 -fg white -relief flat -insertbackground white
-button .main.bottom.center.toolbar.capture -text "Capture" -command doCapture \
+button .main.toolbar.capture -text "Capture" -command doCapture \
     -bg #444444 -fg white -relief flat -padx 10
-button .main.bottom.center.toolbar.quit -text "Quit" -command doExit \
+button .main.toolbar.quit -text "Quit" -command doExit \
     -bg #444444 -fg white -relief flat -padx 10
-button .main.bottom.center.toolbar.border -text "Border" -command toggleBorder \
+button .main.toolbar.refresh -text "Refresh" -command doRefresh \
     -bg #444444 -fg white -relief flat -padx 10
-pack .main.bottom.center.toolbar.size -side left -padx 5 -pady 4
-pack .main.bottom.center.toolbar.border -side left -padx 5 -pady 4
-pack .main.bottom.center.toolbar.quit -side right -padx 5 -pady 4
-pack .main.bottom.center.toolbar.capture -side right -padx 5 -pady 4
-pack .main.bottom.center.toolbar -side bottom -fill x
+menubutton .main.toolbar.options -text "Options" -menu .main.toolbar.options.m \
+    -bg #444444 -fg white -relief flat -padx 10
+menu .main.toolbar.options.m -tearoff 0
+.main.toolbar.options.m add radiobutton -label "Shape (compositor)" \
+    -variable S(display) -value "shape" -command {setDisplayMode shape}
+.main.toolbar.options.m add radiobutton -label "Fake transparency" \
+    -variable S(display) -value "fake" -command {setDisplayMode fake}
+.main.toolbar.options.m add separator
+.main.toolbar.options.m add checkbutton -label "Border" \
+    -variable S(border) -command toggleBorder
+pack .main.toolbar.size -side left -padx 5 -pady 4
+pack .main.toolbar.refresh -side left -padx 5 -pady 4
+pack .main.toolbar.options -side left -padx 5 -pady 4
+pack .main.toolbar.quit -side right -padx 5 -pady 4
+pack .main.toolbar.capture -side right -padx 5 -pady 4
+pack .main.toolbar -side bottom -fill x
 
-pack .main.bottom.center -side left -fill both -expand 1
-pack .main.bottom -side top -fill both -expand 1
 pack .main -fill both -expand 1
 
 # ----------------------------
 # Position window and update background offset
 # ----------------------------
 proc updateBgOffset {} {
-    global S screenW screenH BORDER sizeVar
+    global S screenW screenH sizeVar
 
     # Get window position on screen
-    set wx [winfo rootx .main.bottom.center.c]
-    set wy [winfo rooty .main.bottom.center.c]
-    set cw [winfo width .main.bottom.center.c]
-    set ch [winfo height .main.bottom.center.c]
+    set wx [winfo rootx .main.c]
+    set wy [winfo rooty .main.c]
+    set cw [winfo width .main.c]
+    set ch [winfo height .main.c]
 
     # Update size display
     set sizeVar "${cw} x ${ch}"
@@ -136,21 +131,77 @@ proc updateBgOffset {} {
     set S(lastY) $wy
 
     # Offset the background image so it aligns with the screen
-    .main.bottom.center.c coords bg [expr {-$wx}] [expr {-$wy}]
+    .main.c coords bg [expr {-$wx}] [expr {-$wy}]
+}
+
+# Refresh the root image (for fake mode)
+proc doRefresh {} {
+    global screenW screenH S
+    wm withdraw .
+    update
+    after 150
+    TkX::capture rootimg root 0 0 $screenW $screenH
+    set S(lastX) -1  ;# Force offset update
+    wm deiconify .
+    update idletasks
+    after idle updateDisplay
+}
+
+# Set display mode: shape (true transparency) or fake (root image)
+proc setDisplayMode {mode} {
+    global S
+    set S(display) $mode
+    updateDisplay
 }
 
 # Toggle border visibility
 proc toggleBorder {} {
-    global S BORDER
-    set S(border) [expr {!$S(border)}]
-    if {$S(border)} {
-        pack .main.top -side top -fill x -before .main.bottom
-        pack .main.bottom.left -side left -fill y -before .main.bottom.center
-        pack .main.bottom.right -side right -fill y -before .main.bottom.center
+    global S
+    # Border frames would go here if needed
+}
+
+# Update display based on current mode
+proc updateDisplay {} {
+    global S sizeVar
+
+    # Get canvas position relative to toplevel
+    set cx [expr {[winfo rootx .main.c] - [winfo rootx .]}]
+    set cy [expr {[winfo rooty .main.c] - [winfo rooty .]}]
+    set cw [winfo width .main.c]
+    set ch [winfo height .main.c]
+
+    # Update size display
+    set sizeVar "${cw} x ${ch}"
+
+    if {$S(display) eq "shape"} {
+        # True transparency - cut a hole, hide the image
+        .main.c itemconfigure bg -state hidden
+        applyShape $cx $cy $cw $ch
     } else {
-        pack forget .main.top
-        pack forget .main.bottom.left
-        pack forget .main.bottom.right
+        # Fake transparency - show offset root image
+        TkX::bounding_reset .
+        TkX::input_reset .
+        .main.c itemconfigure bg -state normal
+        updateBgOffset
+    }
+}
+
+# Apply shape with guard to prevent loops from ShapeNotify
+proc applyShape {cx cy cw ch} {
+    global S
+    if {$S(applyingShape)} return
+    set S(applyingShape) 1
+    TkX::bounding_hole . $cx $cy $cw $ch
+    TkX::input_hole . $cx $cy $cw $ch
+    # Reset flag after delay to ignore our own ShapeNotify
+    after 50 {set S(applyingShape) 0}
+}
+
+# Called by ShapeNotify when shape is reset externally
+proc onShapeChange {} {
+    global S
+    if {$S(display) eq "shape"} {
+        updateDisplay
     }
 }
 
@@ -165,50 +216,22 @@ wm geometry . ${ww}x${wh}+${wx}+${wy}
 # Track window movement via Configure events
 # ----------------------------
 bind . <Configure> {
-    after cancel updateBgOffset
-    after idle updateBgOffset
+    after cancel updateDisplay
+    after idle updateDisplay
 }
-
-# ----------------------------
-# Dragging from borders
-# ----------------------------
-foreach w {.main.top .main.bottom.left .main.bottom.right} {
-    bind $w <ButtonPress-1> {
-        set S(mode) drag
-        set S(hx) %X
-        set S(hy) %Y
-    }
-    bind $w <B1-Motion> {
-        if {$S(mode) ne "drag"} return
-        set dx [expr {%X - $S(hx)}]
-        set dy [expr {%Y - $S(hy)}]
-        set geom [wm geometry .]
-        regexp {(\d+)x(\d+)\+(-?\d+)\+(-?\d+)} $geom -> gw gh gx gy
-        wm geometry . ${gw}x${gh}+[expr {$gx+$dx}]+[expr {$gy+$dy}]
-        set S(hx) %X
-        set S(hy) %Y
-    }
-    bind $w <ButtonRelease-1> {
-        set S(mode) ""
-    }
-}
-
-# ----------------------------
-# Resize from corners (optional - use WM decorations for now)
-# ----------------------------
 
 # ----------------------------
 # Size entry
 # ----------------------------
-bind .main.bottom.center.toolbar.size <Return> {
+bind .main.toolbar.size <Return> {
     if {[regexp {(\d+)\s*x\s*(\d+)} $sizeVar -> newW newH]} {
-        global BORDER TOOLBAR_H region
-        set ww [expr {$newW + 2*$BORDER}]
-        set wh [expr {$newH + $BORDER + $TOOLBAR_H}]
+        global TOOLBAR_H region
+        set ww $newW
+        set wh [expr {$newH + $TOOLBAR_H}]
         set geom [wm geometry .]
         regexp {\+(-?\d+)\+(-?\d+)} $geom -> gx gy
         wm geometry . ${ww}x${wh}+${gx}+${gy}
-        .main.bottom.center.c configure -width $newW -height $newH
+        .main.c configure -width $newW -height $newH
         dict set region w $newW
         dict set region h $newH
     }
@@ -219,16 +242,16 @@ bind .main.bottom.center.toolbar.size <Return> {
 # Capture - recapture live root
 # ----------------------------
 proc doCapture {} {
-    global region outDir configFile screenW screenH BORDER TOOLBAR_H
+    global region outDir configFile screenW screenH TOOLBAR_H
 
     set ts [clock format [clock seconds] -format "%Y-%m-%d-%H:%M:%S"]
     set out [file join $outDir "screenshot-$ts.png"]
 
     # Update region from current window position/size
-    set x [winfo rootx .main.bottom.center.c]
-    set y [winfo rooty .main.bottom.center.c]
-    set w [winfo width .main.bottom.center.c]
-    set h [winfo height .main.bottom.center.c]
+    set x [winfo rootx .main.c]
+    set y [winfo rooty .main.c]
+    set w [winfo width .main.c]
+    set h [winfo height .main.c]
     dict set region x $x
     dict set region y $y
     dict set region w $w
@@ -241,7 +264,7 @@ proc doCapture {} {
 
     # Recapture the live root window
     image create photo liveroot
-    xgetimage::capture liveroot root 0 0 $screenW $screenH
+    TkX::capture liveroot root 0 0 $screenW $screenH
 
     # Crop to selection region
     image create photo cropped
@@ -277,10 +300,10 @@ proc saveConfig {} {
 proc doExit {} {
     global region
     # Update region from current window position/size
-    dict set region x [winfo rootx .main.bottom.center.c]
-    dict set region y [winfo rooty .main.bottom.center.c]
-    dict set region w [winfo width .main.bottom.center.c]
-    dict set region h [winfo height .main.bottom.center.c]
+    dict set region x [winfo rootx .main.c]
+    dict set region y [winfo rooty .main.c]
+    dict set region w [winfo width .main.c]
+    dict set region h [winfo height .main.c]
     saveConfig
     exit
 }
@@ -296,7 +319,15 @@ proc doSave {imgname out} {
 wm deiconify .
 wm attributes . -topmost 1
 update idletasks
-after idle updateBgOffset
+after idle updateDisplay
+
+# Watch for shape changes (when compositor/WM resets our shape)
+TkX::shape_watch . onShapeChange
+
+# Keep window on top when focus is lost (input passes through to desktop)
+bind . <FocusOut> {
+    after idle {wm attributes . -topmost 1; raise .}
+}
 
 bind . <Return> doCapture
 bind . <Escape> doExit

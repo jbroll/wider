@@ -1,6 +1,6 @@
-Package csd 0.2
+Package TkX 1.0
 Meta platform linux-unknown-x86_64
-Meta build::date 2025-12-26
+Meta build::date 2025-12-28
 Meta require {Tcl 8.6} Tk
 Meta generated::by {critcl 3.3.1} john
 Meta generated::date critcl
@@ -8,8 +8,8 @@ Meta entrytclcommand {eval [list ::apply {dir {
     source [file join $dir critcl-rt.tcl]
     set path [file join $dir [::critcl::runtime::MapPlatform]]
     set ext [info sharedlibextension]
-    set lib [file join $path "csd$ext"]
-    load $lib Csd
-    package provide csd 0.2
+    set lib [file join $path "TkX$ext"]
+    load $lib Tkx
+    package provide TkX 1.0
 }} $dir]}
-Meta included critcl-rt.tcl linux-x86_64/csd.so
+Meta included critcl-rt.tcl linux-x86_64/TkX.so
