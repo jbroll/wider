@@ -70,32 +70,52 @@ wm geometry . ${screenW}x${screenH}+0+0
 update idletasks
 
 # ----------------------------
-# Overlay - darken areas outside selection
+# Overlay - stippled rectangles for darkening
 # ----------------------------
-# We'll draw 4 rectangles around the selection area with stipple pattern
-# to simulate darkening
+.c create rectangle 0 0 0 0 -fill black -stipple gray50 -outline "" -tags {overlay otop}
+.c create rectangle 0 0 0 0 -fill black -stipple gray50 -outline "" -tags {overlay obot}
+.c create rectangle 0 0 0 0 -fill black -stipple gray50 -outline "" -tags {overlay oleft}
+.c create rectangle 0 0 0 0 -fill black -stipple gray50 -outline "" -tags {overlay oright}
 
-proc updateOverlay {x1 y1 x2 y2} {
-    global screenW screenH
-    .c delete overlay
-
-    # Ensure coords are ordered
-    if {$x1 > $x2} { set t $x1; set x1 $x2; set x2 $t }
-    if {$y1 > $y2} { set t $y1; set y1 $y2; set y2 $t }
-
-    # Top overlay
-    .c create rectangle 0 0 $screenW $y1 \
-        -fill black -stipple gray50 -outline "" -tags overlay
-    # Bottom overlay
-    .c create rectangle 0 $y2 $screenW $screenH \
-        -fill black -stipple gray50 -outline "" -tags overlay
-    # Left overlay
-    .c create rectangle 0 $y1 $x1 $y2 \
-        -fill black -stipple gray50 -outline "" -tags overlay
-    # Right overlay
-    .c create rectangle $x2 $y1 $screenW $y2 \
-        -fill black -stipple gray50 -outline "" -tags overlay
+# ----------------------------
+# Handles (created once, coords updated)
+# ----------------------------
+foreach corner {tl tr bl br} {
+    .c create rectangle 0 0 0 0 -fill white -outline black -width 2 -tags [list handle $corner]
 }
+
+# ----------------------------
+# Size entry widget embedded in canvas
+# ----------------------------
+set sizeVar "500 x 400"
+frame .c.sizebox -bg black -padx 2 -pady 2
+entry .c.sizebox.e -textvariable sizeVar -font {Helvetica 18 bold} \
+    -width 12 -justify center -bg white -relief flat
+pack .c.sizebox.e
+set S(sizewin) [.c create window 0 0 -window .c.sizebox -tags sizeentry]
+
+# Apply size from entry when Return is pressed in the entry
+bind .c.sizebox.e <Return> {
+    if {[regexp {(\d+)\s*x\s*(\d+)} $sizeVar -> newW newH]} {
+        lassign [.c coords $S(rect)] x1 y1 x2 y2
+        # Keep top-left corner, adjust bottom-right
+        set nx1 [expr {min($x1,$x2)}]
+        set ny1 [expr {min($y1,$y2)}]
+        set nx2 [expr {$nx1 + $newW}]
+        set ny2 [expr {$ny1 + $newH}]
+        .c coords $S(rect) $nx1 $ny1 $nx2 $ny2
+        updateUI $nx1 $ny1 $nx2 $ny2
+        # Update region
+        dict set region x [expr {int($nx1)}]
+        dict set region y [expr {int($ny1)}]
+        dict set region w $newW
+        dict set region h $newH
+    }
+    focus .c
+}
+
+# Escape in entry returns focus to canvas
+bind .c.sizebox.e <Escape> {focus .c}
 
 # ----------------------------
 # Geometry helpers
@@ -104,27 +124,46 @@ proc normalize {x y w h} {
     list $x $y [expr {$x+$w}] [expr {$y+$h}]
 }
 
-proc drawHandles {x1 y1 x2 y2} {
-    .c delete handle
-    foreach {hx hy corner} [list \
-        $x1 $y1 tl \
-        $x2 $y1 tr \
-        $x1 $y2 bl \
-        $x2 $y2 br] {
-        .c create rectangle \
-            [expr {$hx-8}] [expr {$hy-8}] \
-            [expr {$hx+8}] [expr {$hy+8}] \
-            -fill white -outline black -width 2 -tags [list handle $corner]
-    }
+proc updateOverlay {x1 y1 x2 y2} {
+    global screenW screenH
+    # Ensure coords are ordered
+    if {$x1 > $x2} { set t $x1; set x1 $x2; set x2 $t }
+    if {$y1 > $y2} { set t $y1; set y1 $y2; set y2 $t }
+
+    .c coords otop   0 0 $screenW $y1
+    .c coords obot   0 $y2 $screenW $screenH
+    .c coords oleft  0 $y1 $x1 $y2
+    .c coords oright $x2 $y1 $screenW $y2
+}
+
+proc updateHandles {x1 y1 x2 y2} {
+    .c coords tl [expr {$x1-8}] [expr {$y1-8}] [expr {$x1+8}] [expr {$y1+8}]
+    .c coords tr [expr {$x2-8}] [expr {$y1-8}] [expr {$x2+8}] [expr {$y1+8}]
+    .c coords bl [expr {$x1-8}] [expr {$y2-8}] [expr {$x1+8}] [expr {$y2+8}]
+    .c coords br [expr {$x2-8}] [expr {$y2-8}] [expr {$x2+8}] [expr {$y2+8}]
 }
 
 proc updateUI {x1 y1 x2 y2} {
+    global S sizeVar
+
     updateOverlay $x1 $y1 $x2 $y2
     .c coords sel $x1 $y1 $x2 $y2
-    drawHandles $x1 $y1 $x2 $y2
-    # Ensure selection is above overlay
+    updateHandles $x1 $y1 $x2 $y2
+
+    # Calculate dimensions and update entry
+    set w [expr {int(abs($x2-$x1))}]
+    set h [expr {int(abs($y2-$y1))}]
+    set sizeVar "${w} x ${h}"
+
+    # Position entry in center of selection
+    set cx [expr {($x1+$x2)/2}]
+    set cy [expr {($y1+$y2)/2}]
+    .c coords $S(sizewin) $cx $cy
+
+    # Ensure proper stacking order
     .c raise sel
     .c raise handle
+    .c raise sizeentry
 }
 
 # ----------------------------
@@ -251,24 +290,30 @@ proc doCapture {} {
 
     frame .p.b
     button .p.b.ok -text Save -command [list doSave cropped $out]
-    button .p.b.cancel -text Cancel -command exit
+    button .p.b.cancel -text Cancel -command doExit
     pack .p.b.ok .p.b.cancel -side left -padx 10
     pack .p.b
 
     bind .p <Return> [list doSave cropped $out]
-    bind .p <Escape> exit
+    bind .p <Escape> doExit
     focus -force .p
 }
 
-proc doSave {imgname out} {
+proc saveConfig {} {
     global region configFile
-
-    $imgname write $out -format png
-
     set f [open $configFile w]
     puts $f $region
     close $f
+}
+
+proc doExit {} {
+    saveConfig
     exit
+}
+
+proc doSave {imgname out} {
+    $imgname write $out -format png
+    doExit
 }
 
 # ----------------------------
@@ -281,5 +326,5 @@ focus -force .c
 grab set -global .c
 
 bind .c <Return> doCapture
-bind .c <Escape> exit
-bind .c <Key-q> exit
+bind .c <Escape> doExit
+bind .c <Key-q> doExit
