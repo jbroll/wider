@@ -23,8 +23,8 @@ package require TkX
 # ----------------------------
 # Paths
 # ----------------------------
-set configFile [file normalize ~/.screenshot]
-set outDir     [file normalize ~/Documents/Screenshots]
+set configFile [file join $env(HOME) .screenshot]
+set outDir     [file join $env(HOME) Documents Screenshots]
 file mkdir $outDir
 
 # ----------------------------
@@ -387,6 +387,7 @@ proc doExit {} {
 # Bindings
 # ----------------------------
 bind . <Expose> {after idle {raise .corner_sw; raise .corner_se}}
+bind . <Destroy> {if {"%W" eq "."} doExit}
 bind . <Escape> doExit
 bind . <Key-q> doExit
 bind . <Return> doCapture
