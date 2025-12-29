@@ -1,15 +1,8 @@
 Package TkX 1.0
 Meta platform linux-unknown-x86_64
-Meta build::date 2025-12-28
-Meta require {Tcl 8.6} Tk
+Meta build::date 2025-12-29
+Meta require {Tcl 9.0} {Tcl 9.1} Tk
 Meta generated::by {critcl 3.3.1} john
 Meta generated::date critcl
-Meta entrytclcommand {eval [list ::apply {dir {
-    source [file join $dir critcl-rt.tcl]
-    set path [file join $dir [::critcl::runtime::MapPlatform]]
-    set ext [info sharedlibextension]
-    set lib [file join $path "TkX$ext"]
-    load $lib Tkx
-    package provide TkX 1.0
-}} $dir]}
+Meta entrytclcommand {eval "[list proc __critcl_load__ {dir} { ;     source [file join $dir critcl-rt.tcl] ;     set path [file join $dir [::critcl::runtime::MapPlatform]] ;     set ext [info sharedlibextension] ;     set lib [file join $path "TkX$ext"] ;     load $lib Tkx ;     package provide TkX 1.0 ;     catch {rename __critcl_load__ {}}}] ; [list __critcl_load__ $dir]"}
 Meta included critcl-rt.tcl linux-x86_64/TkX.so

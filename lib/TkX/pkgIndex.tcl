@@ -1,9 +1,2 @@
-if {![package vsatisfies [package provide Tcl] 8.6]} {return}
-package ifneeded TkX 1.0 [list ::apply {dir {
-    source [file join $dir critcl-rt.tcl]
-    set path [file join $dir [::critcl::runtime::MapPlatform]]
-    set ext [info sharedlibextension]
-    set lib [file join $path "TkX$ext"]
-    load $lib Tkx
-    package provide TkX 1.0
-}} $dir]
+if {![package vsatisfies [package provide Tcl] 9.1]} {return}
+package ifneeded TkX 1.0 "[list proc __critcl_load__ {dir} { ;     source [file join $dir critcl-rt.tcl] ;     set path [file join $dir [::critcl::runtime::MapPlatform]] ;     set ext [info sharedlibextension] ;     set lib [file join $path "TkX$ext"] ;     load $lib Tkx ;     package provide TkX 1.0 ;     catch {rename __critcl_load__ {}}}] ; [list __critcl_load__ $dir]"

@@ -326,7 +326,7 @@ if {![llength [info commands ::platform::generic]]} {
     
         switch -glob -- $plat {
     	windows {
-    	    if {$tcl_platform(platform) == "unix"} {
+    	    if {$tcl_platform(platform) eq "unix"} {
     		set plat cygwin
     	    } else {
     		set plat win32
@@ -350,7 +350,12 @@ if {![llength [info commands ::platform::generic]]} {
     	    }
     	}
     	darwin {
-    	    set plat macosx
+    	    set major [lindex [split $tcl_platform(osVersion) .] 0]
+    	    if {$major > 19} {
+    		set plat macos
+    	    } else {
+    		set plat macosx
+    	    }
     	    # Correctly identify the cpu when running as a 64bit
     	    # process on a machine with a 32bit kernel
     	    if {$cpu eq "ix86"} {

@@ -10,22 +10,30 @@
 #   TkX::nodecor <window>                 - Remove window decorations
 #   TkX::move <window>                    - Initiate WM-controlled move
 #   TkX::resize <window> <direction>      - Initiate WM-controlled resize
+#   TkX::frame_offset <window>            - Get {offX offY} from Tk window to WM frame
+#   TkX::rgba_available                   - Check if 32-bit ARGB visual is available
+#   TkX::rgba_clear <window> x y w h      - Clear region to transparent (XRender)
+#   TkX::rgba_overlay <window>            - Create ARGB overlay window, returns window ID
+#   TkX::rgba_child <window> x y w h      - Create ARGB child window, returns window ID
+#   TkX::window_geometry <id> x y w h     - Move/resize X11 window by ID
+#   TkX::window_destroy <id>              - Destroy X11 window by ID
 #
 # Build: critcl -pkg TkX.tcl
 
-package require Tcl 8.6
+package require Tcl 9.0
 package require critcl 3.2
 
-critcl::tcl 8.6
+critcl::tcl 9.1
 critcl::tk
 
-critcl::clibraries -lX11 -lXext
+critcl::clibraries -L/home/john/lib -ltclstub -ltkstub -lX11 -lXext -lXrender
 
 critcl::ccode {
     #include <X11/Xlib.h>
     #include <X11/Xutil.h>
     #include <X11/Xatom.h>
     #include <X11/extensions/shape.h>
+    #include <X11/extensions/Xrender.h>
     #include <stdlib.h>
     #include <string.h>
 
@@ -319,7 +327,7 @@ critcl::ccode {
         }
 
         /* Empty callback = just remove watch */
-        int len;
+        Tcl_Size len;
         Tcl_GetStringFromObj(callback, &len);
         if (len == 0) {
             XShapeSelectInput(wi.dpy, wi.frameWin, 0);
@@ -423,6 +431,378 @@ critcl::ccode {
         }
         return DoMoveResize(interp, winPath, edge);
     }
+
+    /* ========== RGBA Transparency ========== */
+
+    /* Find a 32-bit ARGB visual for true transparency */
+    static Visual* FindARGBVisual(Display *dpy, int screen, int *depth_out) {
+        XVisualInfo vinfo_template;
+        vinfo_template.screen = screen;
+        vinfo_template.depth = 32;
+        vinfo_template.class = TrueColor;
+
+        int num_visuals;
+        XVisualInfo *visuals = XGetVisualInfo(dpy,
+            VisualScreenMask | VisualDepthMask | VisualClassMask,
+            &vinfo_template, &num_visuals);
+
+        if (!visuals || num_visuals == 0) {
+            if (visuals) XFree(visuals);
+            return NULL;
+        }
+
+        /* Find one with alpha channel (32-bit with proper masks) */
+        Visual *result = NULL;
+        for (int i = 0; i < num_visuals; i++) {
+            XRenderPictFormat *fmt = XRenderFindVisualFormat(dpy, visuals[i].visual);
+            if (fmt && fmt->type == PictTypeDirect && fmt->direct.alphaMask) {
+                result = visuals[i].visual;
+                *depth_out = visuals[i].depth;
+                break;
+            }
+        }
+
+        XFree(visuals);
+        return result;
+    }
+
+    /* Check if RGBA visual is available */
+    static int DoRGBACheck(Tcl_Interp *interp) {
+        Tk_Window tkwin = Tk_MainWindow(interp);
+        if (!tkwin) {
+            Tcl_SetResult(interp, "no Tk main window", TCL_STATIC);
+            return TCL_ERROR;
+        }
+
+        Display *dpy = Tk_Display(tkwin);
+        int screen = DefaultScreen(dpy);
+        int depth;
+
+        Visual *argbVisual = FindARGBVisual(dpy, screen, &depth);
+        Tcl_SetObjResult(interp, Tcl_NewBooleanObj(argbVisual != NULL));
+        return TCL_OK;
+    }
+
+    /* Clear a region to transparent using XRender.
+     * Note: This only works on windows with ARGB visual or with compositor. */
+    static int DoClearRegion(Tcl_Interp *interp, const char *winPath,
+                             int x, int y, int w, int h) {
+        WinInfo wi;
+        if (GetWinInfo(interp, winPath, &wi) != TCL_OK)
+            return TCL_ERROR;
+
+        /* Get XRender picture format for the window */
+        XRenderPictFormat *fmt = XRenderFindVisualFormat(wi.dpy,
+            DefaultVisual(wi.dpy, DefaultScreen(wi.dpy)));
+        if (!fmt) {
+            Tcl_SetResult(interp, "XRender format not found", TCL_STATIC);
+            return TCL_ERROR;
+        }
+
+        /* Create picture for the window */
+        XRenderPictureAttributes pa;
+        pa.subwindow_mode = IncludeInferiors;
+        Picture pic = XRenderCreatePicture(wi.dpy, wi.tkWin, fmt,
+                                           CPSubwindowMode, &pa);
+        if (!pic) {
+            Tcl_SetResult(interp, "failed to create XRender picture", TCL_STATIC);
+            return TCL_ERROR;
+        }
+
+        /* Clear with fully transparent color */
+        XRenderColor clear = {0, 0, 0, 0};  /* RGBA all zero = fully transparent */
+        XRenderFillRectangle(wi.dpy, PictOpSrc, pic, &clear, x, y, w, h);
+
+        XRenderFreePicture(wi.dpy, pic);
+        XFlush(wi.dpy);
+
+        return TCL_OK;
+    }
+
+    /* Create ARGB window as overlay. Returns window ID or 0 on failure.
+     * The overlay window will be a child of root, positioned over the Tk window. */
+    static int DoCreateARGBOverlay(Tcl_Interp *interp, const char *winPath) {
+        WinInfo wi;
+        if (GetWinInfo(interp, winPath, &wi) != TCL_OK)
+            return TCL_ERROR;
+
+        int screen = DefaultScreen(wi.dpy);
+        int depth;
+        Visual *argbVisual = FindARGBVisual(wi.dpy, screen, &depth);
+
+        if (!argbVisual) {
+            Tcl_SetResult(interp, "no ARGB visual available", TCL_STATIC);
+            return TCL_ERROR;
+        }
+
+        /* Get Tk window geometry */
+        XWindowAttributes tkAttr;
+        if (!XGetWindowAttributes(wi.dpy, wi.tkWin, &tkAttr)) {
+            Tcl_SetResult(interp, "failed to get window attributes", TCL_STATIC);
+            return TCL_ERROR;
+        }
+
+        /* Get absolute position */
+        Window child;
+        int absX, absY;
+        XTranslateCoordinates(wi.dpy, wi.tkWin, DefaultRootWindow(wi.dpy),
+                              0, 0, &absX, &absY, &child);
+
+        /* Create colormap for ARGB visual */
+        Colormap cmap = XCreateColormap(wi.dpy, DefaultRootWindow(wi.dpy),
+                                        argbVisual, AllocNone);
+
+        /* Create ARGB window */
+        XSetWindowAttributes attr;
+        attr.colormap = cmap;
+        attr.background_pixel = 0;  /* Transparent */
+        attr.border_pixel = 0;
+        attr.override_redirect = True;  /* No WM decorations */
+
+        Window overlay = XCreateWindow(wi.dpy, DefaultRootWindow(wi.dpy),
+            absX, absY, tkAttr.width, tkAttr.height, 0,
+            depth, InputOutput, argbVisual,
+            CWColormap | CWBackPixel | CWBorderPixel | CWOverrideRedirect,
+            &attr);
+
+        if (!overlay) {
+            XFreeColormap(wi.dpy, cmap);
+            Tcl_SetResult(interp, "failed to create ARGB window", TCL_STATIC);
+            return TCL_ERROR;
+        }
+
+        /* Return the window ID */
+        Tcl_SetObjResult(interp, Tcl_NewWideIntObj((Tcl_WideInt)overlay));
+        return TCL_OK;
+    }
+
+    /* Create ARGB child window inside a Tk window.
+     * The child is fully transparent and can be used for true transparency.
+     * Returns window ID. */
+    static int DoCreateARGBChild(Tcl_Interp *interp, const char *winPath,
+                                  int x, int y, int w, int h) {
+        WinInfo wi;
+        if (GetWinInfo(interp, winPath, &wi) != TCL_OK)
+            return TCL_ERROR;
+
+        int screen = DefaultScreen(wi.dpy);
+        int depth;
+        Visual *argbVisual = FindARGBVisual(wi.dpy, screen, &depth);
+
+        if (!argbVisual) {
+            Tcl_SetResult(interp, "no ARGB visual available", TCL_STATIC);
+            return TCL_ERROR;
+        }
+
+        /* Create colormap for ARGB visual */
+        Colormap cmap = XCreateColormap(wi.dpy, DefaultRootWindow(wi.dpy),
+                                        argbVisual, AllocNone);
+
+        /* Create ARGB child window inside the Tk window */
+        XSetWindowAttributes attr;
+        attr.colormap = cmap;
+        attr.background_pixel = 0;  /* Fully transparent */
+        attr.border_pixel = 0;
+
+        Window child = XCreateWindow(wi.dpy, wi.tkWin,
+            x, y, w, h, 0,
+            depth, InputOutput, argbVisual,
+            CWColormap | CWBackPixel | CWBorderPixel,
+            &attr);
+
+        if (!child) {
+            XFreeColormap(wi.dpy, cmap);
+            Tcl_SetResult(interp, "failed to create ARGB child window", TCL_STATIC);
+            return TCL_ERROR;
+        }
+
+        /* Map the window immediately */
+        XMapWindow(wi.dpy, child);
+        XFlush(wi.dpy);
+
+        /* Return the window ID */
+        Tcl_SetObjResult(interp, Tcl_NewWideIntObj((Tcl_WideInt)child));
+        return TCL_OK;
+    }
+
+    /* Move and resize an X11 window */
+    static int DoMoveResizeWindow(Tcl_Interp *interp, long winId,
+                                   int x, int y, int w, int h) {
+        Tk_Window tkwin = Tk_MainWindow(interp);
+        if (!tkwin) {
+            Tcl_SetResult(interp, "no Tk main window", TCL_STATIC);
+            return TCL_ERROR;
+        }
+        Display *dpy = Tk_Display(tkwin);
+        Window win = (Window)winId;
+
+        XMoveResizeWindow(dpy, win, x, y, w, h);
+        XFlush(dpy);
+        return TCL_OK;
+    }
+
+    /* Destroy an X11 window */
+    static int DoDestroyWindow(Tcl_Interp *interp, long winId) {
+        Tk_Window tkwin = Tk_MainWindow(interp);
+        if (!tkwin) {
+            Tcl_SetResult(interp, "no Tk main window", TCL_STATIC);
+            return TCL_ERROR;
+        }
+        Display *dpy = Tk_Display(tkwin);
+        Window win = (Window)winId;
+
+        XDestroyWindow(dpy, win);
+        XFlush(dpy);
+        return TCL_OK;
+    }
+
+    /* Reparent window to new parent at given position */
+    static int DoReparentWindow(Tcl_Interp *interp, long childId,
+                                 long parentId, int x, int y) {
+        Tk_Window tkwin = Tk_MainWindow(interp);
+        if (!tkwin) {
+            Tcl_SetResult(interp, "no Tk main window", TCL_STATIC);
+            return TCL_ERROR;
+        }
+        Display *dpy = Tk_Display(tkwin);
+
+        XReparentWindow(dpy, (Window)childId, (Window)parentId, x, y);
+        XMapWindow(dpy, (Window)childId);
+        XFlush(dpy);
+        return TCL_OK;
+    }
+
+    /* Map (show) an X11 window */
+    static int DoMapWindow(Tcl_Interp *interp, long winId) {
+        Tk_Window tkwin = Tk_MainWindow(interp);
+        if (!tkwin) {
+            Tcl_SetResult(interp, "no Tk main window", TCL_STATIC);
+            return TCL_ERROR;
+        }
+        Display *dpy = Tk_Display(tkwin);
+        Window win = (Window)winId;
+
+        /* Map the window */
+        XMapWindow(dpy, win);
+
+        /* Raise it to top */
+        XRaiseWindow(dpy, win);
+
+        /* Set _NET_WM_STATE_ABOVE to keep on top */
+        Atom wmState = XInternAtom(dpy, "_NET_WM_STATE", False);
+        Atom wmStateAbove = XInternAtom(dpy, "_NET_WM_STATE_ABOVE", False);
+        XChangeProperty(dpy, win, wmState, XA_ATOM, 32, PropModeReplace,
+                        (unsigned char *)&wmStateAbove, 1);
+
+        XFlush(dpy);
+        XSync(dpy, False);
+        return TCL_OK;
+    }
+
+    /* Create standalone ARGB window (not child of anything).
+     * Uses the simpler XMatchVisualInfo approach that works with compositors. */
+    static int DoCreateARGBWindow(Tcl_Interp *interp,
+                                   int x, int y, int w, int h) {
+        Tk_Window tkwin = Tk_MainWindow(interp);
+        if (!tkwin) {
+            Tcl_SetResult(interp, "no Tk main window", TCL_STATIC);
+            return TCL_ERROR;
+        }
+
+        Display *dpy = Tk_Display(tkwin);
+        int screen = DefaultScreen(dpy);
+
+        /* Use XMatchVisualInfo to find 32-bit TrueColor visual */
+        XVisualInfo vinfo;
+        if (!XMatchVisualInfo(dpy, screen, 32, TrueColor, &vinfo)) {
+            Tcl_SetResult(interp, "no 32-bit TrueColor visual available", TCL_STATIC);
+            return TCL_ERROR;
+        }
+
+        /* Create colormap for this visual */
+        Colormap cmap = XCreateColormap(dpy, DefaultRootWindow(dpy),
+                                        vinfo.visual, AllocNone);
+
+        /* Set window attributes - minimal set like working example */
+        XSetWindowAttributes attr;
+        attr.colormap = cmap;
+        attr.background_pixel = 0;
+        attr.border_pixel = 0;
+
+        /* Create window using the visual's depth */
+        Screen *scr = DefaultScreenOfDisplay(dpy);
+        Window win = XCreateWindow(dpy, RootWindowOfScreen(scr),
+            x, y, w, h, 0,
+            vinfo.depth, InputOutput, vinfo.visual,
+            CWColormap | CWBorderPixel | CWBackPixel,
+            &attr);
+
+        if (!win) {
+            XFreeColormap(dpy, cmap);
+            Tcl_SetResult(interp, "failed to create ARGB window", TCL_STATIC);
+            return TCL_ERROR;
+        }
+
+        /* Set MOTIF_WM_HINTS to remove decorations */
+        Atom prop = XInternAtom(dpy, "_MOTIF_WM_HINTS", False);
+        MotifWmHints hints = {0};
+        hints.flags = MWM_HINTS_DECORATIONS;
+        hints.decorations = 0;
+        XChangeProperty(dpy, win, prop, prop, 32, PropModeReplace,
+                        (unsigned char *)&hints, 5);
+
+        Tcl_SetObjResult(interp, Tcl_NewLongObj((long)win));
+        return TCL_OK;
+    }
+
+    /* Draw a filled rectangle on an ARGB window */
+    static int DoARGBFillRect(Tcl_Interp *interp, long winId,
+                               int x, int y, int w, int h,
+                               int r, int g, int b, int a) {
+        Tk_Window tkwin = Tk_MainWindow(interp);
+        if (!tkwin) {
+            Tcl_SetResult(interp, "no Tk main window", TCL_STATIC);
+            return TCL_ERROR;
+        }
+
+        Display *dpy = Tk_Display(tkwin);
+        Window win = (Window)winId;
+        int screen = DefaultScreen(dpy);
+
+        /* Find the picture format for the window */
+        XWindowAttributes attr;
+        if (!XGetWindowAttributes(dpy, win, &attr)) {
+            Tcl_SetResult(interp, "failed to get window attributes", TCL_STATIC);
+            return TCL_ERROR;
+        }
+
+        XRenderPictFormat *fmt = XRenderFindVisualFormat(dpy, attr.visual);
+        if (!fmt) {
+            Tcl_SetResult(interp, "no XRender format for window", TCL_STATIC);
+            return TCL_ERROR;
+        }
+
+        /* Create picture for the window */
+        Picture pic = XRenderCreatePicture(dpy, win, fmt, 0, NULL);
+        if (!pic) {
+            Tcl_SetResult(interp, "failed to create picture", TCL_STATIC);
+            return TCL_ERROR;
+        }
+
+        /* Fill with color (values are 0-255, XRender uses 0-65535) */
+        XRenderColor color;
+        color.red   = r * 257;
+        color.green = g * 257;
+        color.blue  = b * 257;
+        color.alpha = a * 257;
+
+        XRenderFillRectangle(dpy, PictOpSrc, pic, &color, x, y, w, h);
+
+        XRenderFreePicture(dpy, pic);
+        XFlush(dpy);
+
+        return TCL_OK;
+    }
 }
 
 # Capture
@@ -522,6 +902,251 @@ critcl::cproc TkX::frame_offset {
     Tcl_ListObjAppendElement(interp, result, Tcl_NewIntObj(wi.offY));
     Tcl_SetObjResult(interp, result);
     return TCL_OK;
+}
+
+# RGBA - check if ARGB visual is available
+critcl::cproc TkX::rgba_available {
+    Tcl_Interp* interp
+} ok {
+    return DoRGBACheck(interp);
+}
+
+# RGBA - clear a region to transparent (requires compositor)
+critcl::cproc TkX::rgba_clear {
+    Tcl_Interp* interp
+    char* window
+    int x
+    int y
+    int width
+    int height
+} ok {
+    return DoClearRegion(interp, window, x, y, width, height);
+}
+
+# RGBA - create ARGB overlay window, returns window ID
+critcl::cproc TkX::rgba_overlay {
+    Tcl_Interp* interp
+    char* window
+} ok {
+    return DoCreateARGBOverlay(interp, window);
+}
+
+# RGBA - create ARGB child window inside a Tk window, returns window ID
+critcl::cproc TkX::rgba_child {
+    Tcl_Interp* interp
+    char* window
+    int x
+    int y
+    int width
+    int height
+} ok {
+    return DoCreateARGBChild(interp, window, x, y, width, height);
+}
+
+# Window management - move/resize an X11 window by ID
+critcl::cproc TkX::window_geometry {
+    Tcl_Interp* interp
+    long window_id
+    int x
+    int y
+    int width
+    int height
+} ok {
+    return DoMoveResizeWindow(interp, window_id, x, y, width, height);
+}
+
+# Window management - destroy an X11 window by ID
+critcl::cproc TkX::window_destroy {
+    Tcl_Interp* interp
+    long window_id
+} ok {
+    return DoDestroyWindow(interp, window_id);
+}
+
+# Window management - reparent window to new parent
+critcl::cproc TkX::reparent {
+    Tcl_Interp* interp
+    long child_id
+    long parent_id
+    int x
+    int y
+} ok {
+    return DoReparentWindow(interp, child_id, parent_id, x, y);
+}
+
+# Window management - initiate WM resize on window by ID
+critcl::cproc TkX::resize_id {
+    Tcl_Interp* interp
+    long window_id
+    char* direction
+} ok {
+    Tk_Window tkwin = Tk_MainWindow(interp);
+    if (!tkwin) {
+        Tcl_SetResult(interp, "no Tk main window", TCL_STATIC);
+        return TCL_ERROR;
+    }
+    Display *dpy = Tk_Display(tkwin);
+    Window win = (Window)window_id;
+
+    int edge = dir_to_edge(direction);
+    if (edge < 0) {
+        Tcl_SetResult(interp, "invalid direction: use nw north ne east se south sw west", TCL_STATIC);
+        return TCL_ERROR;
+    }
+
+    /* Get current pointer position */
+    Window root_ret, child_ret;
+    int root_x, root_y, win_x, win_y;
+    unsigned int mask;
+    XQueryPointer(dpy, DefaultRootWindow(dpy), &root_ret, &child_ret,
+                  &root_x, &root_y, &win_x, &win_y, &mask);
+
+    Atom moveresize = XInternAtom(dpy, "_NET_WM_MOVERESIZE", False);
+
+    XEvent ev = {0};
+    ev.xclient.type = ClientMessage;
+    ev.xclient.message_type = moveresize;
+    ev.xclient.display = dpy;
+    ev.xclient.window = win;
+    ev.xclient.format = 32;
+    ev.xclient.data.l[0] = root_x;
+    ev.xclient.data.l[1] = root_y;
+    ev.xclient.data.l[2] = edge;
+    ev.xclient.data.l[3] = Button1;
+    ev.xclient.data.l[4] = 1;  /* source indication: normal application */
+
+    XSendEvent(dpy, DefaultRootWindow(dpy), False,
+               SubstructureRedirectMask | SubstructureNotifyMask, &ev);
+    XFlush(dpy);
+
+    return TCL_OK;
+}
+
+# Window management - initiate WM move on window by ID
+critcl::cproc TkX::move_id {
+    Tcl_Interp* interp
+    long window_id
+} ok {
+    Tk_Window tkwin = Tk_MainWindow(interp);
+    if (!tkwin) {
+        Tcl_SetResult(interp, "no Tk main window", TCL_STATIC);
+        return TCL_ERROR;
+    }
+    Display *dpy = Tk_Display(tkwin);
+    Window win = (Window)window_id;
+
+    /* Get current pointer position */
+    Window root_ret, child_ret;
+    int root_x, root_y, win_x, win_y;
+    unsigned int mask;
+    XQueryPointer(dpy, DefaultRootWindow(dpy), &root_ret, &child_ret,
+                  &root_x, &root_y, &win_x, &win_y, &mask);
+
+    Atom moveresize = XInternAtom(dpy, "_NET_WM_MOVERESIZE", False);
+
+    XEvent ev = {0};
+    ev.xclient.type = ClientMessage;
+    ev.xclient.message_type = moveresize;
+    ev.xclient.display = dpy;
+    ev.xclient.window = win;
+    ev.xclient.format = 32;
+    ev.xclient.data.l[0] = root_x;
+    ev.xclient.data.l[1] = root_y;
+    ev.xclient.data.l[2] = 8;  /* _NET_WM_MOVERESIZE_MOVE */
+    ev.xclient.data.l[3] = Button1;
+    ev.xclient.data.l[4] = 1;  /* source indication: normal application */
+
+    XSendEvent(dpy, DefaultRootWindow(dpy), False,
+               SubstructureRedirectMask | SubstructureNotifyMask, &ev);
+    XFlush(dpy);
+
+    return TCL_OK;
+}
+
+# Window management - set background pixel to transparent (for 32-bit windows)
+critcl::cproc TkX::set_transparent_bg {
+    Tcl_Interp* interp
+    char* window
+} ok {
+    WinInfo wi;
+    if (GetWinInfo(interp, window, &wi) != TCL_OK)
+        return TCL_ERROR;
+
+    /* Set background_pixel to 0 (fully transparent on ARGB) */
+    XSetWindowBackground(wi.dpy, wi.tkWin, 0);
+    XClearWindow(wi.dpy, wi.tkWin);
+    XFlush(wi.dpy);
+
+    return TCL_OK;
+}
+
+# Window management - activate window (give it focus)
+critcl::cproc TkX::activate_id {
+    Tcl_Interp* interp
+    long window_id
+} ok {
+    Tk_Window tkwin = Tk_MainWindow(interp);
+    if (!tkwin) {
+        Tcl_SetResult(interp, "no Tk main window", TCL_STATIC);
+        return TCL_ERROR;
+    }
+    Display *dpy = Tk_Display(tkwin);
+    Window win = (Window)window_id;
+    Window root = DefaultRootWindow(dpy);
+
+    /* Send _NET_ACTIVE_WINDOW to request activation */
+    Atom activeWin = XInternAtom(dpy, "_NET_ACTIVE_WINDOW", False);
+
+    XEvent ev = {0};
+    ev.xclient.type = ClientMessage;
+    ev.xclient.message_type = activeWin;
+    ev.xclient.display = dpy;
+    ev.xclient.window = win;
+    ev.xclient.format = 32;
+    ev.xclient.data.l[0] = 1;  /* source: application */
+    ev.xclient.data.l[1] = CurrentTime;
+    ev.xclient.data.l[2] = 0;  /* currently active window (none) */
+
+    XSendEvent(dpy, root, False,
+               SubstructureRedirectMask | SubstructureNotifyMask, &ev);
+    XFlush(dpy);
+
+    return TCL_OK;
+}
+
+# Window management - map (show) an X11 window by ID
+critcl::cproc TkX::window_map {
+    Tcl_Interp* interp
+    long window_id
+} ok {
+    return DoMapWindow(interp, window_id);
+}
+
+# RGBA - create standalone ARGB window, returns window ID
+critcl::cproc TkX::rgba_window {
+    Tcl_Interp* interp
+    int x
+    int y
+    int width
+    int height
+} ok {
+    return DoCreateARGBWindow(interp, x, y, width, height);
+}
+
+# RGBA - fill rectangle with RGBA color (0-255 for each component)
+critcl::cproc TkX::rgba_fill {
+    Tcl_Interp* interp
+    long window_id
+    int x
+    int y
+    int width
+    int height
+    int r
+    int g
+    int b
+    int a
+} ok {
+    return DoARGBFillRect(interp, window_id, x, y, width, height, r, g, b, a);
 }
 
 package provide TkX 1.0
