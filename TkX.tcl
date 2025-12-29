@@ -508,4 +508,20 @@ critcl::cproc TkX::resize {
     return DoResize(interp, window, direction);
 }
 
+# Get frame offset - returns {offX offY} from Tk window to WM frame
+critcl::cproc TkX::frame_offset {
+    Tcl_Interp* interp
+    char* window
+} ok {
+    WinInfo wi;
+    if (GetWinInfo(interp, window, &wi) != TCL_OK)
+        return TCL_ERROR;
+
+    Tcl_Obj *result = Tcl_NewListObj(0, NULL);
+    Tcl_ListObjAppendElement(interp, result, Tcl_NewIntObj(wi.offX));
+    Tcl_ListObjAppendElement(interp, result, Tcl_NewIntObj(wi.offY));
+    Tcl_SetObjResult(interp, result);
+    return TCL_OK;
+}
+
 package provide TkX 1.0

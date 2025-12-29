@@ -73,15 +73,10 @@ TkX::capture rootimg root 0 0 $screenW $screenH
 # Main container
 frame .main -bg #333333
 
-# Canvas showing "through" to desktop
+# Toolbar (pack first so it keeps space on resize)
+frame .main.toolbar -height $TOOLBAR_H -bg #333333
 set cw [dict get $region w]
 set ch [dict get $region h]
-canvas .main.c -highlightthickness 0 -width $cw -height $ch -bg black
-.main.c create image 0 0 -anchor nw -image rootimg -tags bg
-pack .main.c -side top -fill both -expand 1
-
-# Toolbar
-frame .main.toolbar -height $TOOLBAR_H -bg #333333
 set sizeVar "${cw} x ${ch}"
 entry .main.toolbar.size -textvariable sizeVar -font {Helvetica 12 bold} \
     -width 12 -justify center -bg #222222 -fg white -relief flat -insertbackground white
@@ -107,6 +102,11 @@ pack .main.toolbar.options -side left -padx 5 -pady 4
 pack .main.toolbar.quit -side right -padx 5 -pady 4
 pack .main.toolbar.capture -side right -padx 5 -pady 4
 pack .main.toolbar -side bottom -fill x
+
+# Canvas showing "through" to desktop
+canvas .main.c -highlightthickness 0 -width $cw -height $ch -bg black
+.main.c create image 0 0 -anchor nw -image rootimg -tags bg
+pack .main.c -side top -fill both -expand 1
 
 pack .main -fill both -expand 1
 
@@ -205,7 +205,7 @@ proc onShapeChange {} {
     }
 }
 
-# Initial geometry (no border by default)
+# Initial geometry from saved region
 set wx [dict get $region x]
 set wy [dict get $region y]
 set ww [dict get $region w]
@@ -236,6 +236,7 @@ bind .main.toolbar.size <Return> {
         dict set region h $newH
     }
     focus .
+    break
 }
 
 # ----------------------------
@@ -247,13 +248,18 @@ proc doCapture {} {
     set ts [clock format [clock seconds] -format "%Y-%m-%d-%H:%M:%S"]
     set out [file join $outDir "screenshot-$ts.png"]
 
-    # Update region from current window position/size
+    # Canvas screen position for cropping
     set x [winfo rootx .main.c]
     set y [winfo rooty .main.c]
     set w [winfo width .main.c]
     set h [winfo height .main.c]
-    dict set region x $x
-    dict set region y $y
+
+    # Get actual position and subtract frame offset to get geometry value
+    set actual_x [winfo x .]
+    set actual_y [winfo y .]
+    lassign [TkX::frame_offset .] off_x off_y
+    dict set region x [expr {$actual_x - $off_x}]
+    dict set region y [expr {$actual_y - $off_y}]
     dict set region w $w
     dict set region h $h
 
@@ -299,9 +305,13 @@ proc saveConfig {} {
 
 proc doExit {} {
     global region
-    # Update region from current window position/size
-    dict set region x [winfo rootx .main.c]
-    dict set region y [winfo rooty .main.c]
+    # Get actual position and subtract frame offset to get geometry value
+    set actual_x [winfo x .]
+    set actual_y [winfo y .]
+    lassign [TkX::frame_offset .] off_x off_y
+
+    dict set region x [expr {$actual_x - $off_x}]
+    dict set region y [expr {$actual_y - $off_y}]
     dict set region w [winfo width .main.c]
     dict set region h [winfo height .main.c]
     saveConfig
@@ -319,6 +329,8 @@ proc doSave {imgname out} {
 wm deiconify .
 wm attributes . -topmost 1
 update idletasks
+
+
 after idle updateDisplay
 
 # Watch for shape changes (when compositor/WM resets our shape)
