@@ -133,7 +133,8 @@ proc showPanel {} {
     set x [expr {[winfo width .] - [winfo reqwidth .panel] - 4}]
     place .panel -x $x -y $::TOOLBAR_H
     raise .panel
-    focus .panel.custom.e
+    TkX::grab_focus .
+    focus -force .panel.custom.e
 }
 
 proc hidePanel {} {
@@ -142,7 +143,8 @@ proc hidePanel {} {
 }
 
 bind .panel <Escape> hidePanel
-bind .panel.custom.e <Return> applyCustomSize
+bind .panel.custom.e <Button-1> {TkX::grab_focus .; focus -force %W}
+bind .panel.custom.e <Return> {applyCustomSize; break}
 
 # ----------------------------
 # Size functions
@@ -388,10 +390,17 @@ proc doExit {} {
 # ----------------------------
 bind . <Expose> {after idle {raise .corner_sw; raise .corner_se}}
 bind . <Destroy> {if {"%W" eq "."} doExit}
+bind . <Button-1> {
+    if {[winfo class %W] ne "Entry"} {
+        TkX::grab_focus .
+        focus -force .
+    }
+}
 bind . <Escape> doExit
 bind . <Key-q> doExit
 bind . <Return> doCapture
 
+TkX::grab_focus .
 focus -force .
 
 flush stderr

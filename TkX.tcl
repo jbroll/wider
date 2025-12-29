@@ -837,6 +837,18 @@ critcl::cproc TkX::input_reset {
     return DoResetShape(interp, window, ShapeInput);
 }
 
+# Grab X11 keyboard focus for overrideredirect windows
+critcl::cproc TkX::grab_focus {
+    Tcl_Interp* interp
+    char* window
+} ok {
+    WinInfo wi;
+    if (GetWinInfo(interp, window, &wi) != TCL_OK) return TCL_ERROR;
+    XSetInputFocus(wi.dpy, wi.tkWin, RevertToParent, CurrentTime);
+    XFlush(wi.dpy);
+    return TCL_OK;
+}
+
 # Shape - bounding
 critcl::cproc TkX::bounding_hole {
     Tcl_Interp* interp
