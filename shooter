@@ -1,0 +1,3 @@
+#!/bin/sh
+DIR="$(dirname "$(readlink -f "$0")")"
+exec ~/bin/wish "$DIR/shooter.tcl" -visual "truecolor 32" "$@"
