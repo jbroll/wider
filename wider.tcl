@@ -347,8 +347,30 @@ proc refresh_window_list {} {
     set window_data {}
     set row_widgets {}
 
-    set row 0
+    # Filter and collect windows
+    set skip_classes {Xfdesktop Xfce4-panel Plank Polybar Xfwm4 Wrapper-2.0}
+    set filtered_wins {}
     foreach win [wm::windows] {
+        set class [dict get $win class]
+        set desktop [dict get $win desktop]
+        if {$class eq "Wider.tcl"} continue
+        if {$desktop eq "-1"} continue
+        if {$class in $skip_classes} continue
+        lappend filtered_wins $win
+    }
+
+    # Sort by role (empty roles last)
+    set filtered_wins [lsort -command {apply {{a b} {
+        set ra [dict get $a role]
+        set rb [dict get $b role]
+        if {$ra eq "" && $rb eq ""} { return 0 }
+        if {$ra eq ""} { return 1 }
+        if {$rb eq ""} { return -1 }
+        return [string compare $ra $rb]
+    }}} $filtered_wins]
+
+    set row 0
+    foreach win $filtered_wins {
         set id [dict get $win id]
         set class [dict get $win class]
         set role [dict get $win role]
@@ -359,16 +381,6 @@ proc refresh_window_list {} {
         set h [dict get $win h]
         set title [dict get $win title]
         set geom "${w}x${h}+${x}+${y}"
-
-        # Skip our own window
-        if {$class eq "Wider.tcl"} continue
-
-        # Skip sticky windows (panels, desktop, etc.)
-        if {$desktop eq "-1"} continue
-
-        # Skip known panel/desktop classes
-        set skip_classes {Xfdesktop Xfce4-panel Plank Polybar Xfwm4 Wrapper-2.0}
-        if {$class in $skip_classes} continue
 
         # Check if managed (has matching slot)
         set slot [wm::find_slot_for_window $id]
@@ -582,6 +594,7 @@ proc on_geom_change {id} {
 # Command change handler
 proc on_command_change {id} {
     global window_data status row_widgets
+    variable wm::slots
 
     if {![dict exists $window_data $id]} return
 
