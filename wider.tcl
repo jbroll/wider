@@ -105,21 +105,42 @@ wm::load_slots
 set monitoring 1
 set monitor_interval 500  ;# ms
 set swap_threshold 150    ;# pixels - distance to trigger swap
-set window_positions {}   ;# id -> {x y} last known position
+set snapback_interval 2000  ;# ms - how often to snap back
+set window_positions {}   ;# id -> {x y slot last_moved}
 
 # Track window positions for managed windows
 proc update_positions {} {
     global window_positions
-    set window_positions {}
+    set now [clock milliseconds]
+    set new_positions {}
+
     foreach win [wm::windows] {
-        set slot [wm::find_slot_for_window [dict get $win id]]
-        if {$slot ne ""} {
-            dict set window_positions [dict get $win id] [dict create \
-                x [dict get $win x] y [dict get $win y] \
-                w [dict get $win w] h [dict get $win h] \
-                slot $slot]
+        set id [dict get $win id]
+        set slot [wm::find_slot_for_window $id]
+        if {$slot eq ""} continue
+
+        set x [dict get $win x]
+        set y [dict get $win y]
+
+        # Check if window moved since last check
+        set last_moved $now
+        if {[dict exists $window_positions $id]} {
+            set prev [dict get $window_positions $id]
+            set dx [expr {abs($x - [dict get $prev x])}]
+            set dy [expr {abs($y - [dict get $prev y])}]
+            if {$dx < 10 && $dy < 10} {
+                # Didn't move - keep old last_moved time
+                set last_moved [dict get $prev last_moved]
+            }
         }
+
+        dict set new_positions $id [dict create \
+            x $x y $y \
+            w [dict get $win w] h [dict get $win h] \
+            slot $slot last_moved $last_moved]
     }
+
+    set window_positions $new_positions
 }
 
 # Check for window movements and trigger swaps
@@ -163,6 +184,60 @@ proc check_movements {} {
 
     # Update positions for next iteration
     update_positions
+}
+
+# Snap back windows that haven't moved recently
+proc snapback_idle_windows {} {
+    global window_positions status monitoring
+    variable wm::slots
+
+    if {!$monitoring} return
+
+    set now [clock milliseconds]
+    set idle_threshold 2000  ;# must be stationary for 2 seconds
+    set snapped 0
+
+    dict for {id pos} $window_positions {
+        set last_moved [dict get $pos last_moved]
+        set idle_time [expr {$now - $last_moved}]
+
+        # Skip if window moved recently (being dragged)
+        if {$idle_time < $idle_threshold} continue
+
+        set slot [dict get $pos slot]
+        if {![dict exists $wm::slots $slot]} continue
+
+        set cfg [dict get $wm::slots $slot]
+        set slot_x [dict get $cfg x]
+        set slot_y [dict get $cfg y]
+        set win_x [dict get $pos x]
+        set win_y [dict get $pos y]
+
+        # Check if window is out of position
+        set dx [expr {abs($win_x - $slot_x)}]
+        set dy [expr {abs($win_y - $slot_y)}]
+
+        if {$dx > 20 || $dy > 20} {
+            # Snap back to slot
+            wm::arrange_slot $slot
+            incr snapped
+        }
+    }
+
+    if {$snapped > 0} {
+        set status "Snapped $snapped window(s) to slots"
+        update_positions
+    }
+}
+
+# Snapback loop (runs every 5 seconds)
+proc snapback_loop {} {
+    global monitoring snapback_interval
+
+    if {$monitoring} {
+        catch {snapback_idle_windows}
+    }
+    after $snapback_interval snapback_loop
 }
 
 # Monitor loop
@@ -240,7 +315,7 @@ proc update_focus_highlight {} {
     global row_widgets
 
     set focused [normalize_id [get_focused_window]]
-    set focus_bg "#ffffcc"
+    set focus_bg "#cce5ff"  ;# light blue
     set normal_bg "#ffffff"
 
     dict for {id widgets} $row_widgets {
@@ -625,6 +700,9 @@ after idle {
         update_positions
         monitor_loop
     }
+
+    # Start snapback loop (every 2 seconds)
+    after 2000 snapback_loop
 
     # Start focus highlight loop
     after 300 focus_highlight_loop
