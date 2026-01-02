@@ -211,6 +211,9 @@ set status "Ready"
 # Track window data by id
 set window_data {}
 
+# Current row widgets by window id
+set row_widgets {}
+
 # ========== Window List Functions ==========
 
 # Get currently focused window ID
@@ -224,40 +227,52 @@ proc get_focused_window {} {
     return ""
 }
 
-# Highlight focused window in treeview
-proc update_focus_highlight {} {
-    global window_data
-
-    set focused [get_focused_window]
-
-    foreach item [.tree children {}] {
-        set tags [.tree item $item -tags]
-        set tags [lsearch -all -inline -not $tags "focused"]
-        .tree item $item -tags $tags
+# Normalize hex window ID (strip leading zeros after 0x)
+proc normalize_id {id} {
+    if {[string match "0x*" $id]} {
+        return [format "0x%x" [scan $id "%x"]]
     }
+    return $id
+}
 
-    if {$focused ne "" && [.tree exists $focused]} {
-        .tree item $focused -tags {focused}
-        # Scroll to show focused window
-        .tree see $focused
+# Highlight focused window row
+proc update_focus_highlight {} {
+    global row_widgets
+
+    set focused [normalize_id [get_focused_window]]
+    set focus_bg "#ffffcc"
+    set normal_bg "#ffffff"
+
+    dict for {id widgets} $row_widgets {
+        set norm_id [normalize_id $id]
+        set bg [expr {$norm_id eq $focused ? $focus_bg : $normal_bg}]
+        catch {
+            [dict get $widgets frame] configure -background $bg
+            [dict get $widgets class] configure -background $bg
+            [dict get $widgets title] configure -background $bg
+        }
     }
 }
 
-# Focus highlight loop (runs with monitor)
+# Focus highlight loop
 proc focus_highlight_loop {} {
-    global monitoring
     catch {update_focus_highlight}
     after 250 focus_highlight_loop
 }
 
-# Refresh window list in treeview
+# Refresh window list
 proc refresh_window_list {} {
-    global status window_data
+    global status window_data row_widgets
     variable wm::slots
 
-    .tree delete [.tree children {}]
+    # Clear existing rows
+    foreach child [winfo children .grid.inner] {
+        destroy $child
+    }
     set window_data {}
+    set row_widgets {}
 
+    set row 0
     foreach win [wm::windows] {
         set id [dict get $win id]
         set class [dict get $win class]
@@ -274,10 +289,11 @@ proc refresh_window_list {} {
         if {$class eq "Wider.tcl"} continue
 
         # Skip sticky windows (panels, desktop, etc.)
-        if {$desktop == -1} continue
+        if {$desktop eq "-1"} continue
 
         # Skip known panel/desktop classes
-        if {$class in {Xfdesktop Xfce4-panel Plank Polybar}} continue
+        set skip_classes {Xfdesktop Xfce4-panel Plank Polybar Xfwm4 Wrapper-2.0}
+        if {$class in $skip_classes} continue
 
         # Check if managed (has matching slot)
         set slot [wm::find_slot_for_window $id]
@@ -288,126 +304,118 @@ proc refresh_window_list {} {
             class $class role $role geom $geom title $title \
             x $x y $y w $w h $h managed $managed slot $slot]
 
-        # Insert into treeview
-        set check [expr {$managed ? "\u2611" : "\u2610"}]
-        .tree insert {} end -id $id -values [list $check $role $class $geom $title]
+        # Create row frame
+        set rf .grid.inner.r$row
+        frame $rf -background white
+        grid $rf -row $row -column 0 -sticky ew
+
+        # Managed checkbutton
+        set var "::managed_$id"
+        set $var $managed
+        checkbutton $rf.cb -variable $var -command [list on_managed_toggle $id] \
+            -background white -activebackground white
+
+        # Role entry
+        entry $rf.role -width 22
+        $rf.role insert 0 $role
+        bind $rf.role <Return> [list on_role_change $id]
+        bind $rf.role <FocusOut> [list on_role_change $id]
+
+        # Class label
+        label $rf.class -text $class -width 16 -anchor w -background white
+
+        # Geometry entry
+        entry $rf.geom -width 18
+        $rf.geom insert 0 $geom
+        bind $rf.geom <Return> [list on_geom_change $id]
+        bind $rf.geom <FocusOut> [list on_geom_change $id]
+
+        # Title label (truncated)
+        set short_title [string range $title 0 30]
+        if {[string length $title] > 30} { append short_title "..." }
+        label $rf.title -text $short_title -anchor w -background white
+
+        # Grid the widgets
+        grid $rf.cb $rf.role $rf.class $rf.geom $rf.title -sticky w -padx 2 -pady 1
+        grid columnconfigure $rf 4 -weight 1
+
+        # Store widget references
+        dict set row_widgets $id [dict create \
+            frame $rf cb $rf.cb role $rf.role class $rf.class \
+            geom $rf.geom title $rf.title var $var]
+
+        incr row
     }
 
-    set status "Refreshed [dict size $window_data] windows"
+    # Update scroll region
+    update idletasks
+    .grid configure -scrollregion [.grid bbox all]
+
+    set status "Refreshed $row windows"
 }
 
-# Toggle managed state for selected window
-proc toggle_managed {} {
-    global window_data status
+# Checkbox toggle handler
+proc on_managed_toggle {id} {
+    global window_data status row_widgets
 
-    set sel [.tree selection]
-    if {$sel eq ""} return
-
-    set id [lindex $sel 0]
     if {![dict exists $window_data $id]} return
 
+    set var [dict get [dict get $row_widgets $id] var]
+    set managed [set $var]
     set win [dict get $window_data $id]
-    set managed [dict get $win managed]
     set class [dict get $win class]
     set role [dict get $win role]
 
-    if {$managed} {
+    if {!$managed} {
         # Unmanage - remove from slots
         set slot [dict get $win slot]
         if {$slot ne ""} {
             dict unset wm::slots $slot
         }
         dict set window_data $id managed 0
-        .tree set $id managed "\u2610"
+        dict set window_data $id slot ""
         set status "Removed $class from slots"
     } else {
         # Manage - add to slots
         if {$role eq ""} {
-            # Generate role from class
-            set role [string tolower [dict get $win class]]
+            set role [string tolower $class]
             wm::set_role $id $role
             dict set window_data $id role $role
-            .tree set $id role $role
+            [dict get [dict get $row_widgets $id] role] delete 0 end
+            [dict get [dict get $row_widgets $id] role] insert 0 $role
         }
-        # Create slot
         set slot_name [string tolower $role]
         dict set wm::slots $slot_name [dict create \
-            role $role \
-            class $class \
-            x [dict get $win x] \
-            y [dict get $win y] \
-            w [dict get $win w] \
-            h [dict get $win h]]
+            role $role class $class \
+            x [dict get $win x] y [dict get $win y] \
+            w [dict get $win w] h [dict get $win h]]
         dict set window_data $id managed 1
         dict set window_data $id slot $slot_name
-        .tree set $id managed "\u2611"
         set status "Added $class to slots"
     }
 
     save_all
 }
 
-# Inline edit entry widget
-proc start_inline_edit {id column} {
-    global window_data
+# Role change handler
+proc on_role_change {id} {
+    global window_data status row_widgets
 
     if {![dict exists $window_data $id]} return
 
+    set entry [dict get [dict get $row_widgets $id] role]
+    set new_role [string trim [$entry get]]
     set win [dict get $window_data $id]
+    set old_role [dict get $win role]
 
-    # Get cell bbox
-    set bbox [.tree bbox $id $column]
-    if {$bbox eq ""} return
-    lassign $bbox x y w h
+    if {$new_role eq $old_role} return
+    if {$new_role eq ""} return
 
-    # Get current value
-    switch $column {
-        role { set value [dict get $win role] }
-        geometry { set value [dict get $win geom] }
-        default { return }
-    }
-
-    # Create entry over the cell
-    destroy .inline_edit
-    entry .inline_edit -relief solid -bd 1
-    .inline_edit insert 0 $value
-    .inline_edit selection range 0 end
-
-    place .inline_edit -in .tree -x $x -y $y -width $w -height $h
-    focus .inline_edit
-
-    bind .inline_edit <Return> [list finish_inline_edit $id $column]
-    bind .inline_edit <Escape> {destroy .inline_edit}
-    bind .inline_edit <FocusOut> [list finish_inline_edit $id $column]
-}
-
-proc finish_inline_edit {id column} {
-    global window_data status
-
-    if {![winfo exists .inline_edit]} return
-
-    set new_value [string trim [.inline_edit get]]
-    destroy .inline_edit
-
-    if {$new_value eq ""} return
-    if {![dict exists $window_data $id]} return
-
-    switch $column {
-        role { apply_role_change $id $new_value }
-        geometry { apply_geometry_change $id $new_value }
-    }
-}
-
-proc apply_role_change {id new_role} {
-    global window_data status
-
-    set win [dict get $window_data $id]
     set class [dict get $win class]
 
     # Update window role
     wm::set_role $id $new_role
     dict set window_data $id role $new_role
-    .tree set $id role $new_role
 
     # Update or create slot
     set old_slot [dict get $win slot]
@@ -417,31 +425,42 @@ proc apply_role_change {id new_role} {
 
     set slot_name [string tolower $new_role]
     dict set wm::slots $slot_name [dict create \
-        role $new_role \
-        class $class \
-        x [dict get $win x] \
-        y [dict get $win y] \
-        w [dict get $win w] \
-        h [dict get $win h]]
+        role $new_role class $class \
+        x [dict get $win x] y [dict get $win y] \
+        w [dict get $win w] h [dict get $win h]]
 
     dict set window_data $id managed 1
     dict set window_data $id slot $slot_name
-    .tree set $id managed "\u2611"
+
+    # Update checkbox
+    set var [dict get [dict get $row_widgets $id] var]
+    set $var 1
 
     set status "Role: $new_role"
     save_all
 }
 
-proc apply_geometry_change {id new_geom} {
-    global window_data status
+# Geometry change handler
+proc on_geom_change {id} {
+    global window_data status row_widgets
+
+    if {![dict exists $window_data $id]} return
+
+    set entry [dict get [dict get $row_widgets $id] geom]
+    set new_geom [string trim [$entry get]]
+    set win [dict get $window_data $id]
+    set old_geom [dict get $win geom]
+
+    if {$new_geom eq $old_geom} return
 
     # Parse geometry
     if {[catch {wm::parse_geometry $new_geom} parsed]} {
         set status "Invalid geometry: $new_geom"
+        $entry delete 0 end
+        $entry insert 0 $old_geom
         return
     }
 
-    set win [dict get $window_data $id]
     set x [dict get $parsed x]
     set y [dict get $parsed y]
     set w [dict get $parsed w]
@@ -456,7 +475,6 @@ proc apply_geometry_change {id new_geom} {
     dict set window_data $id w $w
     dict set window_data $id h $h
     dict set window_data $id geom $new_geom
-    .tree set $id geometry $new_geom
 
     # Update slot if managed
     set slot [dict get $win slot]
@@ -469,17 +487,6 @@ proc apply_geometry_change {id new_geom} {
     }
 
     set status "Geometry: $new_geom"
-}
-
-# Legacy procs for compatibility
-proc edit_role {} {
-    set sel [.tree selection]
-    if {$sel ne ""} { start_inline_edit [lindex $sel 0] role }
-}
-
-proc edit_geometry {} {
-    set sel [.tree selection]
-    if {$sel ne ""} { start_inline_edit [lindex $sel 0] geometry }
 }
 
 # Save slots and regenerate autostart
@@ -525,34 +532,39 @@ proc do_launch {} {
 ttk::style configure Monitor.On.TButton -foreground darkgreen
 ttk::style configure Monitor.Off.TButton -foreground gray
 
-# Tag for focused window highlight
-set focus_bg "#ffffcc"  ;# light yellow
-
 # Main frame
 ttk::frame .f -padding 5
 grid .f -sticky nsew
 grid columnconfigure . 0 -weight 1
 grid rowconfigure . 0 -weight 1
 
-# Treeview for window list
-ttk::treeview .tree -columns {managed role class geometry title} -show headings \
-    -yscrollcommand {.vsb set} -selectmode browse
-ttk::scrollbar .vsb -orient vertical -command {.tree yview}
+# Header row
+frame .hdr -background #e0e0e0
+label .hdr.cb -text "" -width 3 -background #e0e0e0
+label .hdr.role -text "Role" -width 22 -anchor w -background #e0e0e0 -font {TkDefaultFont 9 bold}
+label .hdr.class -text "Class" -width 16 -anchor w -background #e0e0e0 -font {TkDefaultFont 9 bold}
+label .hdr.geom -text "Geometry" -width 18 -anchor w -background #e0e0e0 -font {TkDefaultFont 9 bold}
+label .hdr.title -text "Title" -anchor w -background #e0e0e0 -font {TkDefaultFont 9 bold}
+grid .hdr.cb .hdr.role .hdr.class .hdr.geom .hdr.title -sticky w -padx 2 -pady 3
+grid columnconfigure .hdr 4 -weight 1
 
-.tree heading managed -text "\u2611" -anchor center
-.tree heading role -text "Role" -anchor w
-.tree heading class -text "Class" -anchor w
-.tree heading geometry -text "Geometry" -anchor w
-.tree heading title -text "Title" -anchor w
+# Scrollable canvas for window grid
+canvas .grid -background white -yscrollcommand {.vsb set} -highlightthickness 0
+ttk::scrollbar .vsb -orient vertical -command {.grid yview}
 
-.tree column managed -width 30 -stretch 0 -anchor center
-.tree column role -width 150 -stretch 0
-.tree column class -width 120 -stretch 0
-.tree column geometry -width 140 -stretch 0
-.tree column title -width 200 -stretch 1
+# Inner frame for grid rows
+frame .grid.inner -background white
+.grid create window 0 0 -anchor nw -window .grid.inner -tags inner
 
-# Configure focused tag for highlight
-.tree tag configure focused -background $focus_bg
+# Configure canvas scrolling
+bind .grid.inner <Configure> {
+    .grid configure -scrollregion [.grid bbox all]
+}
+bind .grid <MouseWheel> {
+    .grid yview scroll [expr {-%D/120}] units
+}
+bind .grid <Button-4> {.grid yview scroll -3 units}
+bind .grid <Button-5> {.grid yview scroll 3 units}
 
 # Button bar
 ttk::frame .btns
@@ -565,41 +577,16 @@ ttk::button .btns.monitor -text "Monitor: ON" -command toggle_monitoring -style 
 ttk::label .status -textvariable status -foreground gray -anchor w
 
 # Layout
-grid .tree -in .f -row 0 -column 0 -sticky nsew
-grid .vsb -in .f -row 0 -column 1 -sticky ns
-grid .btns -in .f -row 1 -column 0 -columnspan 2 -sticky ew -pady 5
-grid .status -in .f -row 2 -column 0 -columnspan 2 -sticky ew
+grid .hdr -in .f -row 0 -column 0 -columnspan 2 -sticky ew
+grid .grid -in .f -row 1 -column 0 -sticky nsew
+grid .vsb -in .f -row 1 -column 1 -sticky ns
+grid .btns -in .f -row 2 -column 0 -columnspan 2 -sticky ew -pady 5
+grid .status -in .f -row 3 -column 0 -columnspan 2 -sticky ew
 
 pack .btns.refresh .btns.arrange .btns.launch .btns.monitor -side left -padx 3
 
 grid columnconfigure .f 0 -weight 1
-grid rowconfigure .f 0 -weight 1
-
-# Bindings
-# Single-click on checkbox column
-bind .tree <Button-1> {
-    set col [.tree identify column %x %y]
-    set item [.tree identify item %x %y]
-    if {$col eq "#1" && $item ne ""} {
-        .tree selection set $item
-        after idle toggle_managed
-    }
-}
-# Double-click for role/geometry editing
-bind .tree <Double-1> {
-    set col [.tree identify column %x %y]
-    set item [.tree identify item %x %y]
-    if {$item eq ""} return
-    .tree selection set $item
-    if {$col eq "#2"} {
-        after idle {start_inline_edit [lindex [.tree selection] 0] role}
-    } elseif {$col eq "#4"} {
-        after idle {start_inline_edit [lindex [.tree selection] 0] geometry}
-    }
-}
-bind .tree <Return> edit_role
-bind .tree <space> toggle_managed
-bind .tree <g> edit_geometry
+grid rowconfigure .f 1 -weight 1
 
 # Update monitor button reference
 proc update_monitor_button {} {
