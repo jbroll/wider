@@ -4,33 +4,92 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-Wider is a Tcl/Tk window layout save/restore utility for X11 Linux desktops. It allows users to save the positions of all open windows and restore them later.
+Wider is a Tcl/Tk window arranger for X11 Linux desktops. It manages window positions using named "slots" with WM_WINDOW_ROLE identity, enabling reliable multi-window layouts and position swapping. The project also includes TkX, a C extension for X11 features not available in standard Tk, and shooter, a screenshot capture tool.
 
-## Running the Application
+## Building and Running
 
 ```bash
-# Run the main GUI application
-tclsh wider.tcl
-# or
-wish wider.tcl
+# Build TkX extension (requires critcl)
+make
 
-# Run position roundtrip test
+# Run GUI with slot monitoring (default)
+tclsh wider.tcl
+
+# CLI options
+tclsh wider.tcl --arrange    # Snap windows to slot positions
+tclsh wider.tcl --launch     # Launch missing apps from slots
+tclsh wider.tcl --generate   # Generate slots.tcl from layout.tcl
+tclsh wider.tcl --save       # Save window snapshot (legacy)
+tclsh wider.tcl --restore    # Restore from snapshot (legacy)
+
+# Screenshot capture tool (requires 32-bit visual)
+./shooter
+
+# Run tests
 tclsh test_roundtrip.tcl
+tclsh test_shape.tcl
 ```
+
+## Slot System
+
+Slots define named window positions in `~/.config/wider/slots.tcl`:
+
+```tcl
+slot terminal-left {
+    role     terminal-left
+    class    Xfce4-terminal
+    geometry 960x1080+0+0
+    command  {xfce4-terminal --role=terminal-left}
+}
+```
+
+- **role**: WM_WINDOW_ROLE for identity matching
+- **class**: Fallback WM_CLASS for singleton apps
+- **geometry**: X11 geometry string (WxH+X+Y)
+- **command**: Launch command (apps without --role support get role set via xprop)
+
+Windows with the same role but different slot positions are **swappable** - drag one near another's slot to swap them.
 
 ## Architecture
 
 ### Core Components
 
-- **wider.tcl**: Main GUI application using Tk. Provides Save/Restore buttons and enforces single-instance via a socket on port 47824.
+- **wider.tcl**: Main GUI with slot monitoring. Buttons: Save/Restore (legacy), Launch/Arrange (slots), Monitor toggle. Monitors window positions every 500ms and triggers swaps when windows are dragged near other slots.
 
-- **wmctrl.tcl**: Core library in the `wm::` namespace providing window management functions:
-  - `wm::windows` - Lists all windows with id, desktop, pid, position, size, class, and cmdline
-  - `wm::move id ?desktop? x y ?w h?` - Moves/resizes windows with automatic offset compensation
-  - `wm::state id add|remove|toggle prop...` - Changes window state (maximized, fullscreen, etc.)
-  - `wm::xprop id ?prop? ?value?` - Gets/sets X11 window properties
-  - `wm::save ?filename?` - Saves layout to `~/.config/wider/layout.tcl`
-  - `wm::restore ?filename?` - Restores layout by matching windows by class and closest size
+- **wmctrl.tcl**: Core library in the `wm::` namespace:
+
+  **Window Management:**
+  - `wm::windows` - Lists windows with id, desktop, pid, position, size, class, cmdline, role
+  - `wm::move id ?desktop? x y ?w h?` - Moves/resizes with offset compensation
+  - `wm::state id add|remove|toggle prop...` - Changes window state
+  - `wm::xprop id ?prop? ?value?` - Gets/sets X11 properties
+  - `wm::get_role id` / `wm::set_role id role` - WM_WINDOW_ROLE access
+  - `wm::parse_geometry geom` - Parse X11 geometry string
+
+  **Slot Management:**
+  - `wm::load_slots` / `wm::save_slots` - Load/save slot configuration
+  - `wm::find_window_for_slot slot` - Find window by role (or class fallback)
+  - `wm::find_slot_for_window id` - Find slot for window
+  - `wm::arrange_slot slot` / `wm::arrange_all` - Move windows to slot positions
+  - `wm::swap_slots slot1 slot2` - Swap windows between slots
+  - `wm::launch_slot slot` / `wm::launch_all` - Launch missing apps
+  - `wm::generate_slots` - Generate slots.tcl from layout.tcl
+
+  **Legacy (snapshot-based):**
+  - `wm::save` / `wm::restore` - Save/restore by class+size matching
+
+- **TkX.tcl**: Critcl-based X11 extension package providing:
+  - `TkX::capture` - Capture window/screen region to Tk photo image
+  - `TkX::input_hole/reset` - X11 Shape extension for click-through regions
+  - `TkX::bounding_hole/reset` - Visual transparency holes
+  - `TkX::shape_watch` - ShapeNotify event callbacks
+  - `TkX::nodecor` - Remove window decorations
+  - `TkX::move/resize` - WM-controlled window operations via _NET_WM_MOVERESIZE
+  - `TkX::frame_offset` - Get offset from Tk window to WM frame
+  - `TkX::rgba_*` - 32-bit ARGB visual support (overlay windows, transparency)
+  - `TkX::grab_focus` - Keyboard focus for overrideredirect windows
+
+- **shooter.tcl**: Screenshot capture tool with transparent frame UI. Uses TkX for click-through transparency and screen capture. Requires 32-bit visual (use `./shooter` wrapper).
 
 ### Window Type Detection
 
@@ -44,4 +103,6 @@ The `get_window_type` proc handles three window decoration types that require di
 - `wmctrl` - Window manager control CLI
 - `xprop` - X11 property utility
 - `xwininfo` - X11 window info utility
-- Tk (`package require Tk`)
+- `critcl` - For building TkX extension
+- Tcl 9.0+, Tk
+- X11 libraries: libX11, libXext, libXrender
