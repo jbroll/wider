@@ -517,6 +517,7 @@ namespace eval wm {
     }
 
     # Find window matching a slot by role (or class fallback)
+    # When multiple windows share a role, picks the one closest to slot geometry
     # Returns window dict or empty string
     proc find_window_for_slot {slot_name} {
         variable slots
@@ -527,14 +528,29 @@ namespace eval wm {
         set slot_role [dict get $slot role]
         set slot_class [expr {[dict exists $slot class] ? [dict get $slot class] : ""}]
 
+        # Collect all windows matching the role
+        set matches {}
         foreach win [windows] {
             set win_role [dict get $win role]
-            set win_class [dict get $win class]
-
-            # Match by role first
             if {$win_role ne "" && $win_role eq $slot_role} {
-                return $win
+                lappend matches $win
             }
+        }
+
+        # If multiple matches, pick closest to slot geometry
+        if {[llength $matches] > 1} {
+            set best ""
+            set best_dist 999999
+            foreach win $matches {
+                set dist [slot_distance $win $slot_name]
+                if {$dist < $best_dist} {
+                    set best_dist $dist
+                    set best $win
+                }
+            }
+            return $best
+        } elseif {[llength $matches] == 1} {
+            return [lindex $matches 0]
         }
 
         # Fallback: match by class (for singleton apps)
