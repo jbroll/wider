@@ -374,10 +374,19 @@ proc refresh_window_list {} {
         set slot [wm::find_slot_for_window $id]
         set managed [expr {$slot ne ""}]
 
+        # Get command from slot config if managed
+        set command ""
+        if {$managed && [dict exists $wm::slots $slot]} {
+            set cfg [dict get $wm::slots $slot]
+            if {[dict exists $cfg command]} {
+                set command [dict get $cfg command]
+            }
+        }
+
         # Store window data
         dict set window_data $id [dict create \
             class $class role $role geom $geom title $title \
-            x $x y $y w $w h $h managed $managed slot $slot]
+            x $x y $y w $w h $h managed $managed slot $slot command $command]
 
         # Create row frame
         set rf .grid.inner.r$row
@@ -391,33 +400,39 @@ proc refresh_window_list {} {
             -background white -activebackground white
 
         # Role entry
-        entry $rf.role -width 22
+        entry $rf.role -width 18
         $rf.role insert 0 $role
         bind $rf.role <Return> [list on_role_change $id]
         bind $rf.role <FocusOut> [list on_role_change $id]
 
         # Class label
-        label $rf.class -text $class -width 16 -anchor w -background white
+        label $rf.class -text $class -width 14 -anchor w -background white
 
         # Geometry entry
-        entry $rf.geom -width 18
+        entry $rf.geom -width 16
         $rf.geom insert 0 $geom
         bind $rf.geom <Return> [list on_geom_change $id]
         bind $rf.geom <FocusOut> [list on_geom_change $id]
 
+        # Command entry
+        entry $rf.cmd -width 24
+        $rf.cmd insert 0 $command
+        bind $rf.cmd <Return> [list on_command_change $id]
+        bind $rf.cmd <FocusOut> [list on_command_change $id]
+
         # Title label (truncated)
-        set short_title [string range $title 0 30]
-        if {[string length $title] > 30} { append short_title "..." }
+        set short_title [string range $title 0 25]
+        if {[string length $title] > 25} { append short_title "..." }
         label $rf.title -text $short_title -anchor w -background white
 
         # Grid the widgets
-        grid $rf.cb $rf.role $rf.class $rf.geom $rf.title -sticky w -padx 2 -pady 1
-        grid columnconfigure $rf 4 -weight 1
+        grid $rf.cb $rf.role $rf.class $rf.geom $rf.cmd $rf.title -sticky w -padx 2 -pady 1
+        grid columnconfigure $rf 5 -weight 1
 
         # Store widget references
         dict set row_widgets $id [dict create \
             frame $rf cb $rf.cb role $rf.role class $rf.class \
-            geom $rf.geom title $rf.title var $var]
+            geom $rf.geom cmd $rf.cmd title $rf.title var $var]
 
         incr row
     }
@@ -564,6 +579,37 @@ proc on_geom_change {id} {
     set status "Geometry: $new_geom"
 }
 
+# Command change handler
+proc on_command_change {id} {
+    global window_data status row_widgets
+
+    if {![dict exists $window_data $id]} return
+
+    set entry [dict get [dict get $row_widgets $id] cmd]
+    set new_cmd [string trim [$entry get]]
+    set win [dict get $window_data $id]
+    set old_cmd [dict get $win command]
+
+    if {$new_cmd eq $old_cmd} return
+
+    # Update window_data
+    dict set window_data $id command $new_cmd
+
+    # Update slot if managed
+    set slot [dict get $win slot]
+    if {$slot ne "" && [dict exists $wm::slots $slot]} {
+        if {$new_cmd eq ""} {
+            # Remove command from slot
+            dict unset wm::slots $slot command
+        } else {
+            dict set wm::slots $slot command $new_cmd
+        }
+        save_all
+    }
+
+    set status "Command: $new_cmd"
+}
+
 # Save slots and regenerate autostart
 proc save_all {} {
     global status
@@ -616,12 +662,13 @@ grid rowconfigure . 0 -weight 1
 # Header row
 frame .hdr -background #e0e0e0
 label .hdr.cb -text "" -width 3 -background #e0e0e0
-label .hdr.role -text "Role" -width 22 -anchor w -background #e0e0e0 -font {TkDefaultFont 9 bold}
-label .hdr.class -text "Class" -width 16 -anchor w -background #e0e0e0 -font {TkDefaultFont 9 bold}
-label .hdr.geom -text "Geometry" -width 18 -anchor w -background #e0e0e0 -font {TkDefaultFont 9 bold}
+label .hdr.role -text "Role" -width 18 -anchor w -background #e0e0e0 -font {TkDefaultFont 9 bold}
+label .hdr.class -text "Class" -width 14 -anchor w -background #e0e0e0 -font {TkDefaultFont 9 bold}
+label .hdr.geom -text "Geometry" -width 16 -anchor w -background #e0e0e0 -font {TkDefaultFont 9 bold}
+label .hdr.cmd -text "Command" -width 24 -anchor w -background #e0e0e0 -font {TkDefaultFont 9 bold}
 label .hdr.title -text "Title" -anchor w -background #e0e0e0 -font {TkDefaultFont 9 bold}
-grid .hdr.cb .hdr.role .hdr.class .hdr.geom .hdr.title -sticky w -padx 2 -pady 3
-grid columnconfigure .hdr 4 -weight 1
+grid .hdr.cb .hdr.role .hdr.class .hdr.geom .hdr.cmd .hdr.title -sticky w -padx 2 -pady 3
+grid columnconfigure .hdr 5 -weight 1
 
 # Scrollable canvas for window grid
 canvas .grid -background white -yscrollcommand {.vsb set} -highlightthickness 0
