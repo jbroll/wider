@@ -487,10 +487,16 @@ proc on_managed_toggle {id} {
             [dict get [dict get $row_widgets $id] role] insert 0 $role
         }
         set slot_name [string tolower $role]
-        dict set wm::slots $slot_name [dict create \
+        # Preserve existing command if any
+        set cmd [dict get $win command]
+        set slot_dict [dict create \
             role $role class $class \
             x [dict get $win x] y [dict get $win y] \
             w [dict get $win w] h [dict get $win h]]
+        if {$cmd ne ""} {
+            dict set slot_dict command $cmd
+        }
+        dict set wm::slots $slot_name $slot_dict
         dict set window_data $id managed 1
         dict set window_data $id slot $slot_name
         set status "Added $class to slots"
@@ -526,10 +532,16 @@ proc on_role_change {id} {
     }
 
     set slot_name [string tolower $new_role]
-    dict set wm::slots $slot_name [dict create \
+    # Preserve existing command if any
+    set cmd [dict get $win command]
+    set slot_dict [dict create \
         role $new_role class $class \
         x [dict get $win x] y [dict get $win y] \
         w [dict get $win w] h [dict get $win h]]
+    if {$cmd ne ""} {
+        dict set slot_dict command $cmd
+    }
+    dict set wm::slots $slot_name $slot_dict
 
     dict set window_data $id managed 1
     dict set window_data $id slot $slot_name
