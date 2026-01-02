@@ -262,6 +262,7 @@ proc refresh_window_list {} {
         set id [dict get $win id]
         set class [dict get $win class]
         set role [dict get $win role]
+        set desktop [dict get $win desktop]
         set x [dict get $win x]
         set y [dict get $win y]
         set w [dict get $win w]
@@ -271,6 +272,12 @@ proc refresh_window_list {} {
 
         # Skip our own window
         if {$class eq "Wider.tcl"} continue
+
+        # Skip sticky windows (panels, desktop, etc.)
+        if {$desktop == -1} continue
+
+        # Skip known panel/desktop classes
+        if {$class in {Xfdesktop Xfce4-panel Plank Polybar}} continue
 
         # Check if managed (has matching slot)
         set slot [wm::find_slot_for_window $id]
@@ -340,60 +347,61 @@ proc toggle_managed {} {
     save_all
 }
 
-# Edit role for selected window
-proc edit_role {} {
-    global window_data status
+# Inline edit entry widget
+proc start_inline_edit {id column} {
+    global window_data
 
-    set sel [.tree selection]
-    if {$sel eq ""} return
-
-    set id [lindex $sel 0]
     if {![dict exists $window_data $id]} return
 
     set win [dict get $window_data $id]
-    set old_role [dict get $win role]
-    set class [dict get $win class]
 
-    # Create edit dialog
-    set dlg [toplevel .role_edit]
-    wm title $dlg "Edit Role"
-    wm transient $dlg .
+    # Get cell bbox
+    set bbox [.tree bbox $id $column]
+    if {$bbox eq ""} return
+    lassign $bbox x y w h
 
-    ttk::label $dlg.lbl -text "Role for $class:"
-    ttk::entry $dlg.entry -width 40
-    $dlg.entry insert 0 $old_role
+    # Get current value
+    switch $column {
+        role { set value [dict get $win role] }
+        geometry { set value [dict get $win geom] }
+        default { return }
+    }
 
-    ttk::frame $dlg.btns
-    ttk::button $dlg.btns.ok -text "OK" -command [list apply_role_edit $dlg $id]
-    ttk::button $dlg.btns.cancel -text "Cancel" -command [list destroy $dlg]
+    # Create entry over the cell
+    destroy .inline_edit
+    entry .inline_edit -relief solid -bd 1
+    .inline_edit insert 0 $value
+    .inline_edit selection range 0 end
 
-    grid $dlg.lbl -padx 10 -pady 5 -sticky w
-    grid $dlg.entry -padx 10 -pady 5 -sticky ew
-    grid $dlg.btns -padx 10 -pady 10
-    pack $dlg.btns.ok $dlg.btns.cancel -side left -padx 5
+    place .inline_edit -in .tree -x $x -y $y -width $w -height $h
+    focus .inline_edit
 
-    bind $dlg.entry <Return> [list apply_role_edit $dlg $id]
-    bind $dlg <Escape> [list destroy $dlg]
-
-    focus $dlg.entry
-    $dlg.entry selection range 0 end
-
-    # Center on parent
-    wm geometry $dlg +[expr {[winfo x .] + 50}]+[expr {[winfo y .] + 50}]
+    bind .inline_edit <Return> [list finish_inline_edit $id $column]
+    bind .inline_edit <Escape> {destroy .inline_edit}
+    bind .inline_edit <FocusOut> [list finish_inline_edit $id $column]
 }
 
-# Apply role edit
-proc apply_role_edit {dlg id} {
+proc finish_inline_edit {id column} {
     global window_data status
 
-    set new_role [string trim [$dlg.entry get]]
-    destroy $dlg
+    if {![winfo exists .inline_edit]} return
 
-    if {$new_role eq ""} return
+    set new_value [string trim [.inline_edit get]]
+    destroy .inline_edit
+
+    if {$new_value eq ""} return
     if {![dict exists $window_data $id]} return
 
+    switch $column {
+        role { apply_role_change $id $new_value }
+        geometry { apply_geometry_change $id $new_value }
+    }
+}
+
+proc apply_role_change {id new_role} {
+    global window_data status
+
     set win [dict get $window_data $id]
-    set old_role [dict get $win role]
     set class [dict get $win class]
 
     # Update window role
@@ -420,60 +428,12 @@ proc apply_role_edit {dlg id} {
     dict set window_data $id slot $slot_name
     .tree set $id managed "\u2611"
 
-    set status "Updated role: $new_role"
+    set status "Role: $new_role"
     save_all
 }
 
-# Edit geometry for selected window
-proc edit_geometry {} {
+proc apply_geometry_change {id new_geom} {
     global window_data status
-
-    set sel [.tree selection]
-    if {$sel eq ""} return
-
-    set id [lindex $sel 0]
-    if {![dict exists $window_data $id]} return
-
-    set win [dict get $window_data $id]
-    set geom [dict get $win geom]
-    set class [dict get $win class]
-
-    # Create edit dialog
-    set dlg [toplevel .geom_edit]
-    wm title $dlg "Edit Geometry"
-    wm transient $dlg .
-
-    ttk::label $dlg.lbl -text "Geometry for $class (WxH+X+Y):"
-    ttk::entry $dlg.entry -width 30
-    $dlg.entry insert 0 $geom
-
-    ttk::frame $dlg.btns
-    ttk::button $dlg.btns.ok -text "OK" -command [list apply_geometry_edit $dlg $id]
-    ttk::button $dlg.btns.cancel -text "Cancel" -command [list destroy $dlg]
-
-    grid $dlg.lbl -padx 10 -pady 5 -sticky w
-    grid $dlg.entry -padx 10 -pady 5 -sticky ew
-    grid $dlg.btns -padx 10 -pady 10
-    pack $dlg.btns.ok $dlg.btns.cancel -side left -padx 5
-
-    bind $dlg.entry <Return> [list apply_geometry_edit $dlg $id]
-    bind $dlg <Escape> [list destroy $dlg]
-
-    focus $dlg.entry
-    $dlg.entry selection range 0 end
-
-    wm geometry $dlg +[expr {[winfo x .] + 50}]+[expr {[winfo y .] + 50}]
-}
-
-# Apply geometry edit
-proc apply_geometry_edit {dlg id} {
-    global window_data status
-
-    set new_geom [string trim [$dlg.entry get]]
-    destroy $dlg
-
-    if {$new_geom eq ""} return
-    if {![dict exists $window_data $id]} return
 
     # Parse geometry
     if {[catch {wm::parse_geometry $new_geom} parsed]} {
@@ -508,7 +468,18 @@ proc apply_geometry_edit {dlg id} {
         save_all
     }
 
-    set status "Updated geometry: $new_geom"
+    set status "Geometry: $new_geom"
+}
+
+# Legacy procs for compatibility
+proc edit_role {} {
+    set sel [.tree selection]
+    if {$sel ne ""} { start_inline_edit [lindex $sel 0] role }
+}
+
+proc edit_geometry {} {
+    set sel [.tree selection]
+    if {$sel ne ""} { start_inline_edit [lindex $sel 0] geometry }
 }
 
 # Save slots and regenerate autostart
@@ -605,14 +576,25 @@ grid columnconfigure .f 0 -weight 1
 grid rowconfigure .f 0 -weight 1
 
 # Bindings
+# Single-click on checkbox column
+bind .tree <Button-1> {
+    set col [.tree identify column %x %y]
+    set item [.tree identify item %x %y]
+    if {$col eq "#1" && $item ne ""} {
+        .tree selection set $item
+        after idle toggle_managed
+    }
+}
+# Double-click for role/geometry editing
 bind .tree <Double-1> {
     set col [.tree identify column %x %y]
-    if {$col eq "#1"} {
-        toggle_managed
-    } elseif {$col eq "#2"} {
-        edit_role
+    set item [.tree identify item %x %y]
+    if {$item eq ""} return
+    .tree selection set $item
+    if {$col eq "#2"} {
+        after idle {start_inline_edit [lindex [.tree selection] 0] role}
     } elseif {$col eq "#4"} {
-        edit_geometry
+        after idle {start_inline_edit [lindex [.tree selection] 0] geometry}
     }
 }
 bind .tree <Return> edit_role
