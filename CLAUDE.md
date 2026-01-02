@@ -19,6 +19,7 @@ tclsh wider.tcl
 tclsh wider.tcl --arrange    # Snap windows to slot positions
 tclsh wider.tcl --launch     # Launch missing apps from slots
 tclsh wider.tcl --generate   # Generate slots.tcl from layout.tcl
+tclsh wider.tcl --autostart  # Generate ~/.config/autostart/*.desktop files
 tclsh wider.tcl --save       # Save window snapshot (legacy)
 tclsh wider.tcl --restore    # Restore from snapshot (legacy)
 
@@ -26,7 +27,8 @@ tclsh wider.tcl --restore    # Restore from snapshot (legacy)
 ./shooter
 
 # Run tests
-tclsh test_roundtrip.tcl
+tclsh test_units.tcl         # Unit tests (pure functions)
+tclsh test_roundtrip.tcl     # Integration test (window positioning)
 tclsh test_shape.tcl
 ```
 
@@ -54,7 +56,13 @@ Windows with the same role but different slot positions are **swappable** - drag
 
 ### Core Components
 
-- **wider.tcl**: Main GUI with slot monitoring. Buttons: Save/Restore (legacy), Launch/Arrange (slots), Monitor toggle. Monitors window positions every 500ms and triggers swaps when windows are dragged near other slots.
+- **wider.tcl**: Slot editor GUI with window list showing all windows with:
+  - Checkbox column to toggle managed/unmanaged state
+  - Editable role and geometry (double-click to edit)
+  - Focus highlighting (yellow) follows active window
+  - Buttons: Refresh, Arrange, Launch, Monitor toggle
+  - Monitors window positions every 500ms and triggers swaps when windows are dragged near other slots
+  - All edits auto-save slots.tcl and regenerate autostart files
 
 - **wmctrl.tcl**: Core library in the `wm::` namespace:
 
@@ -74,6 +82,7 @@ Windows with the same role but different slot positions are **swappable** - drag
   - `wm::swap_slots slot1 slot2` - Swap windows between slots
   - `wm::launch_slot slot` / `wm::launch_all` - Launch missing apps
   - `wm::generate_slots` - Generate slots.tcl from layout.tcl
+  - `wm::generate_autostart` - Generate ~/.config/autostart/wider-*.desktop files
 
   **Legacy (snapshot-based):**
   - `wm::save` / `wm::restore` - Save/restore by class+size matching
