@@ -8,6 +8,7 @@
 #   wider.tcl --arrange    - arrange windows to slots and exit
 #   wider.tcl --launch     - launch missing apps from slots and exit
 #   wider.tcl --generate   - generate slots.tcl from layout.tcl
+#   wider.tcl --autostart  - generate autostart .desktop files from slots
 
 source [file join [file dirname [info script]] wmctrl.tcl]
 
@@ -41,6 +42,12 @@ if {[llength $argv] > 0} {
             puts "Generated $count slots from layout"
             exit 0
         }
+        --autostart {
+            wm::load_slots
+            set count [wm::generate_autostart]
+            puts "Generated $count autostart files in ~/.config/autostart/"
+            exit 0
+        }
         --help - -h {
             puts "Usage: wider.tcl \[option\]"
             puts "  --restore, -r   Restore window layout and exit"
@@ -48,6 +55,7 @@ if {[llength $argv] > 0} {
             puts "  --arrange, -a   Arrange windows to slots and exit"
             puts "  --launch, -l    Launch missing apps from slots and exit"
             puts "  --generate, -g  Generate slots.tcl from layout.tcl"
+            puts "  --autostart     Generate autostart .desktop files from slots"
             puts "  (no args)       Run GUI with slot monitoring"
             exit 0
         }
@@ -192,54 +200,346 @@ proc update_monitor_button {} {
 }
 
 # Main window setup
-wm title . "Wider"
-wm resizable . 0 0
+wm title . "Wider - Slot Editor"
+wm resizable . 1 1
+wm minsize . 600 300
 tk appname wider
 
 # Status variable
 set status "Ready"
 
-# Save button
-proc do_save {} {
-    global status
-    try {
-        set count [wm::save]
-        set status "Saved $count windows"
-    } on error {msg} {
-        set status "Error: $msg"
+# Track window data by id
+set window_data {}
+
+# ========== Window List Functions ==========
+
+# Get currently focused window ID
+proc get_focused_window {} {
+    if {[catch {exec xprop -root _NET_ACTIVE_WINDOW} result]} {
+        return ""
+    }
+    if {[regexp {window id # (0x[0-9a-fA-F]+)} $result -> id]} {
+        return $id
+    }
+    return ""
+}
+
+# Highlight focused window in treeview
+proc update_focus_highlight {} {
+    global window_data
+
+    set focused [get_focused_window]
+
+    foreach item [.tree children {}] {
+        set tags [.tree item $item -tags]
+        set tags [lsearch -all -inline -not $tags "focused"]
+        .tree item $item -tags $tags
+    }
+
+    if {$focused ne "" && [.tree exists $focused]} {
+        .tree item $focused -tags {focused}
+        # Scroll to show focused window
+        .tree see $focused
     }
 }
 
-# Restore button
-proc do_restore {} {
-    global status
-    try {
-        set count [wm::restore]
-        set status "Restored $count windows"
-    } on error {msg} {
-        set status "Error: $msg"
-    }
+# Focus highlight loop (runs with monitor)
+proc focus_highlight_loop {} {
+    global monitoring
+    catch {update_focus_highlight}
+    after 250 focus_highlight_loop
 }
 
-# Arrange button - snap all windows to slot positions
+# Refresh window list in treeview
+proc refresh_window_list {} {
+    global status window_data
+    variable wm::slots
+
+    .tree delete [.tree children {}]
+    set window_data {}
+
+    foreach win [wm::windows] {
+        set id [dict get $win id]
+        set class [dict get $win class]
+        set role [dict get $win role]
+        set x [dict get $win x]
+        set y [dict get $win y]
+        set w [dict get $win w]
+        set h [dict get $win h]
+        set title [dict get $win title]
+        set geom "${w}x${h}+${x}+${y}"
+
+        # Skip our own window
+        if {$class eq "Wider.tcl"} continue
+
+        # Check if managed (has matching slot)
+        set slot [wm::find_slot_for_window $id]
+        set managed [expr {$slot ne ""}]
+
+        # Store window data
+        dict set window_data $id [dict create \
+            class $class role $role geom $geom title $title \
+            x $x y $y w $w h $h managed $managed slot $slot]
+
+        # Insert into treeview
+        set check [expr {$managed ? "\u2611" : "\u2610"}]
+        .tree insert {} end -id $id -values [list $check $role $class $geom $title]
+    }
+
+    set status "Refreshed [dict size $window_data] windows"
+}
+
+# Toggle managed state for selected window
+proc toggle_managed {} {
+    global window_data status
+
+    set sel [.tree selection]
+    if {$sel eq ""} return
+
+    set id [lindex $sel 0]
+    if {![dict exists $window_data $id]} return
+
+    set win [dict get $window_data $id]
+    set managed [dict get $win managed]
+    set class [dict get $win class]
+    set role [dict get $win role]
+
+    if {$managed} {
+        # Unmanage - remove from slots
+        set slot [dict get $win slot]
+        if {$slot ne ""} {
+            dict unset wm::slots $slot
+        }
+        dict set window_data $id managed 0
+        .tree set $id managed "\u2610"
+        set status "Removed $class from slots"
+    } else {
+        # Manage - add to slots
+        if {$role eq ""} {
+            # Generate role from class
+            set role [string tolower [dict get $win class]]
+            wm::set_role $id $role
+            dict set window_data $id role $role
+            .tree set $id role $role
+        }
+        # Create slot
+        set slot_name [string tolower $role]
+        dict set wm::slots $slot_name [dict create \
+            role $role \
+            class $class \
+            x [dict get $win x] \
+            y [dict get $win y] \
+            w [dict get $win w] \
+            h [dict get $win h]]
+        dict set window_data $id managed 1
+        dict set window_data $id slot $slot_name
+        .tree set $id managed "\u2611"
+        set status "Added $class to slots"
+    }
+
+    save_all
+}
+
+# Edit role for selected window
+proc edit_role {} {
+    global window_data status
+
+    set sel [.tree selection]
+    if {$sel eq ""} return
+
+    set id [lindex $sel 0]
+    if {![dict exists $window_data $id]} return
+
+    set win [dict get $window_data $id]
+    set old_role [dict get $win role]
+    set class [dict get $win class]
+
+    # Create edit dialog
+    set dlg [toplevel .role_edit]
+    wm title $dlg "Edit Role"
+    wm transient $dlg .
+
+    ttk::label $dlg.lbl -text "Role for $class:"
+    ttk::entry $dlg.entry -width 40
+    $dlg.entry insert 0 $old_role
+
+    ttk::frame $dlg.btns
+    ttk::button $dlg.btns.ok -text "OK" -command [list apply_role_edit $dlg $id]
+    ttk::button $dlg.btns.cancel -text "Cancel" -command [list destroy $dlg]
+
+    grid $dlg.lbl -padx 10 -pady 5 -sticky w
+    grid $dlg.entry -padx 10 -pady 5 -sticky ew
+    grid $dlg.btns -padx 10 -pady 10
+    pack $dlg.btns.ok $dlg.btns.cancel -side left -padx 5
+
+    bind $dlg.entry <Return> [list apply_role_edit $dlg $id]
+    bind $dlg <Escape> [list destroy $dlg]
+
+    focus $dlg.entry
+    $dlg.entry selection range 0 end
+
+    # Center on parent
+    wm geometry $dlg +[expr {[winfo x .] + 50}]+[expr {[winfo y .] + 50}]
+}
+
+# Apply role edit
+proc apply_role_edit {dlg id} {
+    global window_data status
+
+    set new_role [string trim [$dlg.entry get]]
+    destroy $dlg
+
+    if {$new_role eq ""} return
+    if {![dict exists $window_data $id]} return
+
+    set win [dict get $window_data $id]
+    set old_role [dict get $win role]
+    set class [dict get $win class]
+
+    # Update window role
+    wm::set_role $id $new_role
+    dict set window_data $id role $new_role
+    .tree set $id role $new_role
+
+    # Update or create slot
+    set old_slot [dict get $win slot]
+    if {$old_slot ne "" && [dict exists $wm::slots $old_slot]} {
+        dict unset wm::slots $old_slot
+    }
+
+    set slot_name [string tolower $new_role]
+    dict set wm::slots $slot_name [dict create \
+        role $new_role \
+        class $class \
+        x [dict get $win x] \
+        y [dict get $win y] \
+        w [dict get $win w] \
+        h [dict get $win h]]
+
+    dict set window_data $id managed 1
+    dict set window_data $id slot $slot_name
+    .tree set $id managed "\u2611"
+
+    set status "Updated role: $new_role"
+    save_all
+}
+
+# Edit geometry for selected window
+proc edit_geometry {} {
+    global window_data status
+
+    set sel [.tree selection]
+    if {$sel eq ""} return
+
+    set id [lindex $sel 0]
+    if {![dict exists $window_data $id]} return
+
+    set win [dict get $window_data $id]
+    set geom [dict get $win geom]
+    set class [dict get $win class]
+
+    # Create edit dialog
+    set dlg [toplevel .geom_edit]
+    wm title $dlg "Edit Geometry"
+    wm transient $dlg .
+
+    ttk::label $dlg.lbl -text "Geometry for $class (WxH+X+Y):"
+    ttk::entry $dlg.entry -width 30
+    $dlg.entry insert 0 $geom
+
+    ttk::frame $dlg.btns
+    ttk::button $dlg.btns.ok -text "OK" -command [list apply_geometry_edit $dlg $id]
+    ttk::button $dlg.btns.cancel -text "Cancel" -command [list destroy $dlg]
+
+    grid $dlg.lbl -padx 10 -pady 5 -sticky w
+    grid $dlg.entry -padx 10 -pady 5 -sticky ew
+    grid $dlg.btns -padx 10 -pady 10
+    pack $dlg.btns.ok $dlg.btns.cancel -side left -padx 5
+
+    bind $dlg.entry <Return> [list apply_geometry_edit $dlg $id]
+    bind $dlg <Escape> [list destroy $dlg]
+
+    focus $dlg.entry
+    $dlg.entry selection range 0 end
+
+    wm geometry $dlg +[expr {[winfo x .] + 50}]+[expr {[winfo y .] + 50}]
+}
+
+# Apply geometry edit
+proc apply_geometry_edit {dlg id} {
+    global window_data status
+
+    set new_geom [string trim [$dlg.entry get]]
+    destroy $dlg
+
+    if {$new_geom eq ""} return
+    if {![dict exists $window_data $id]} return
+
+    # Parse geometry
+    if {[catch {wm::parse_geometry $new_geom} parsed]} {
+        set status "Invalid geometry: $new_geom"
+        return
+    }
+
+    set win [dict get $window_data $id]
+    set x [dict get $parsed x]
+    set y [dict get $parsed y]
+    set w [dict get $parsed w]
+    set h [dict get $parsed h]
+
+    # Move/resize the window
+    wm::move $id $x $y $w $h
+
+    # Update window_data
+    dict set window_data $id x $x
+    dict set window_data $id y $y
+    dict set window_data $id w $w
+    dict set window_data $id h $h
+    dict set window_data $id geom $new_geom
+    .tree set $id geometry $new_geom
+
+    # Update slot if managed
+    set slot [dict get $win slot]
+    if {$slot ne "" && [dict exists $wm::slots $slot]} {
+        dict set wm::slots $slot x $x
+        dict set wm::slots $slot y $y
+        dict set wm::slots $slot w $w
+        dict set wm::slots $slot h $h
+        save_all
+    }
+
+    set status "Updated geometry: $new_geom"
+}
+
+# Save slots and regenerate autostart
+proc save_all {} {
+    global status
+    wm::save_slots
+    wm::generate_autostart
+    set status "Saved slots and autostart files"
+}
+
+# Arrange button
 proc do_arrange {} {
     global status
     try {
         set count [wm::arrange_all]
         set status "Arranged $count windows"
         update_positions
+        refresh_window_list
     } on error {msg} {
         set status "Error: $msg"
     }
 }
 
-# Launch button - launch missing apps
+# Launch button
 proc do_launch {} {
     global status
     try {
         set count [wm::launch_all]
         if {$count > 0} {
             set status "Launched $count apps"
+            after 1000 refresh_window_list
         } else {
             set status "All apps running"
         }
@@ -248,56 +548,115 @@ proc do_launch {} {
     }
 }
 
-# UI styles for monitor button
+# ========== UI Setup ==========
+
+# Styles
 ttk::style configure Monitor.On.TButton -foreground darkgreen
 ttk::style configure Monitor.Off.TButton -foreground gray
 
-# UI
-ttk::frame .f -padding 10
+# Tag for focused window highlight
+set focus_bg "#ffffcc"  ;# light yellow
 
-# Row 1: Layout management
-ttk::button .f.save -text "Save" -command do_save -width 8
-ttk::button .f.restore -text "Restore" -command do_restore -width 8
-
-# Row 2: Slot management
-ttk::button .f.launch -text "Launch" -command do_launch -width 8
-ttk::button .f.arrange -text "Arrange" -command do_arrange -width 8
-
-# Row 3: Monitor toggle
-ttk::button .f.monitor -text "Monitor: ON" -command toggle_monitoring -width 18 -style Monitor.On.TButton
-
-# Status
-ttk::label .f.status -textvariable status -foreground gray
-
+# Main frame
+ttk::frame .f -padding 5
 grid .f -sticky nsew
-grid .f.save .f.restore -padx 5 -pady 2
-grid .f.launch .f.arrange -padx 5 -pady 2
-grid .f.monitor -columnspan 2 -pady 2
-grid .f.status -columnspan 2 -pady {5 0}
+grid columnconfigure . 0 -weight 1
+grid rowconfigure . 0 -weight 1
 
-# Keep window on top
-wm attributes . -topmost 1
+# Treeview for window list
+ttk::treeview .tree -columns {managed role class geometry title} -show headings \
+    -yscrollcommand {.vsb set} -selectmode browse
+ttk::scrollbar .vsb -orient vertical -command {.tree yview}
 
-# Position in upper-right corner (to the left of talkie)
+.tree heading managed -text "\u2611" -anchor center
+.tree heading role -text "Role" -anchor w
+.tree heading class -text "Class" -anchor w
+.tree heading geometry -text "Geometry" -anchor w
+.tree heading title -text "Title" -anchor w
+
+.tree column managed -width 30 -stretch 0 -anchor center
+.tree column role -width 150 -stretch 0
+.tree column class -width 120 -stretch 0
+.tree column geometry -width 140 -stretch 0
+.tree column title -width 200 -stretch 1
+
+# Configure focused tag for highlight
+.tree tag configure focused -background $focus_bg
+
+# Button bar
+ttk::frame .btns
+ttk::button .btns.refresh -text "Refresh" -command refresh_window_list
+ttk::button .btns.arrange -text "Arrange" -command do_arrange
+ttk::button .btns.launch -text "Launch" -command do_launch
+ttk::button .btns.monitor -text "Monitor: ON" -command toggle_monitoring -style Monitor.On.TButton
+
+# Status bar
+ttk::label .status -textvariable status -foreground gray -anchor w
+
+# Layout
+grid .tree -in .f -row 0 -column 0 -sticky nsew
+grid .vsb -in .f -row 0 -column 1 -sticky ns
+grid .btns -in .f -row 1 -column 0 -columnspan 2 -sticky ew -pady 5
+grid .status -in .f -row 2 -column 0 -columnspan 2 -sticky ew
+
+pack .btns.refresh .btns.arrange .btns.launch .btns.monitor -side left -padx 3
+
+grid columnconfigure .f 0 -weight 1
+grid rowconfigure .f 0 -weight 1
+
+# Bindings
+bind .tree <Double-1> {
+    set col [.tree identify column %x %y]
+    if {$col eq "#1"} {
+        toggle_managed
+    } elseif {$col eq "#2"} {
+        edit_role
+    } elseif {$col eq "#4"} {
+        edit_geometry
+    }
+}
+bind .tree <Return> edit_role
+bind .tree <space> toggle_managed
+bind .tree <g> edit_geometry
+
+# Update monitor button reference
+proc update_monitor_button {} {
+    global monitoring
+    if {$monitoring} {
+        .btns.monitor configure -text "Monitor: ON" -style Monitor.On.TButton
+    } else {
+        .btns.monitor configure -text "Monitor: OFF" -style Monitor.Off.TButton
+    }
+}
+
+# Keep window on top (optional - can be toggled)
+# wm attributes . -topmost 1
+
+# Initial setup
 after idle {
     update idletasks
-    set sw [winfo screenwidth .]
-    set ww [winfo reqwidth .]
-    # Position: right edge minus window width minus margin (talkie is ~731 wide at x=5031)
-    # Place wider to the left of where talkie typically sits
-    wm geometry . +[expr {$sw - $ww - 800}]+50
 
-    # Set _NET_WM_PID so we can be identified for restart
+    # Position window
+    set sw [winfo screenwidth .]
+    wm geometry . 700x400+[expr {$sw - 750}]+50
+
+    # Set _NET_WM_PID
     after 100 {
         set frame [wm frame .]
         if {$frame ne "0x0"} {
-            exec xprop -id $frame -f _NET_WM_PID 32c -set _NET_WM_PID [pid]
+            catch {exec xprop -id $frame -f _NET_WM_PID 32c -set _NET_WM_PID [pid]}
         }
     }
 
-    # Start monitoring loop (on by default)
+    # Load window list
+    refresh_window_list
+
+    # Start monitoring
     after 200 {
         update_positions
         monitor_loop
     }
+
+    # Start focus highlight loop
+    after 300 focus_highlight_loop
 }

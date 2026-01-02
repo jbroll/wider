@@ -703,6 +703,73 @@ namespace eval wm {
         return $count
     }
 
+    # Autostart directory
+    variable autostart_dir [file join $::env(HOME) .config autostart]
+
+    # Generate autostart .desktop files from slots
+    # Files are named wider-{slot-name}.desktop for reliable updating
+    proc generate_autostart {{dirname ""}} {
+        variable autostart_dir
+        variable slots
+
+        if {$dirname eq ""} {
+            set dirname $autostart_dir
+        }
+        file mkdir $dirname
+
+        # Remove old wider-managed autostart files
+        foreach f [glob -nocomplain -directory $dirname wider-*.desktop] {
+            file delete $f
+        }
+
+        set count 0
+        dict for {name cfg} $slots {
+            if {![dict exists $cfg command]} continue
+
+            set cmd [dict get $cfg command]
+            set role [dict get $cfg role]
+            set class [expr {[dict exists $cfg class] ? [dict get $cfg class] : ""}]
+
+            # Build geometry string
+            set geom ""
+            if {[dict exists $cfg w] && [dict exists $cfg x]} {
+                set w [dict get $cfg w]
+                set h [dict get $cfg h]
+                set x [dict get $cfg x]
+                set y [dict get $cfg y]
+                set geom "${w}x${h}+${x}+${y}"
+            }
+
+            # Build exec command with role
+            set exec $cmd
+            # Add --role if not already present
+            if {![string match "*--role=*" $exec]} {
+                append exec " --role=$role"
+            }
+            # Add --geometry for apps that support it
+            if {$geom ne "" && $class in {Xfce4-terminal}} {
+                if {![string match "*--geometry=*" $exec]} {
+                    append exec " --geometry=$geom"
+                }
+            }
+
+            # Write .desktop file
+            set filename [file join $dirname wider-$name.desktop]
+            set f [open $filename w]
+            puts $f "\[Desktop Entry\]"
+            puts $f "Type=Application"
+            puts $f "Name=$name (Wider)"
+            puts $f "Exec=$exec"
+            puts $f "X-Wider-Slot=$name"
+            puts $f "X-GNOME-Autostart-enabled=true"
+            close $f
+
+            incr count
+        }
+
+        return $count
+    }
+
     # Generate slots from saved layout file
     # Windows with same class and similar geometry share a role (swappable)
     proc generate_slots {{layout_filename ""} {slots_filename ""}} {
