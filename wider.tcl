@@ -110,21 +110,23 @@ set window_positions {}   ;# id -> {x y slot last_moved}
 set last_swap_time 0      ;# time of last swap (ms) - skip checks briefly after swap
 
 # Track window positions for managed windows
+# Uses fast windows_quick for position updates (no xprop calls)
 proc update_positions {} {
     global window_positions
     set now [clock milliseconds]
     set new_positions {}
 
-    foreach win [wm::windows] {
+    foreach win [wm::windows_quick] {
         set id [dict get $win id]
         set x [dict get $win x]
         set y [dict get $win y]
 
         # Preserve existing slot assignment to enable swap detection
-        # Only calculate slot for new windows
+        # Only calculate slot for new windows (requires full windows call)
         if {[dict exists $window_positions $id]} {
             set slot [dict get [dict get $window_positions $id] slot]
         } else {
+            # New window - need to lookup slot (slower, but rare)
             set slot [wm::find_slot_for_window $id]
         }
         if {$slot eq ""} continue

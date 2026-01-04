@@ -130,6 +130,20 @@ namespace eval wm {
         }
     }
 
+    # Fast window list - positions only, no xprop calls
+    # For monitoring loop where we just need id, x, y, w, h
+    proc windows_quick {} {
+        set result {}
+        set output [exec wmctrl -l -x -G -p]
+        foreach line [split $output \n] {
+            set parts [regexp -inline -all {\S+} $line]
+            if {[llength $parts] < 9} continue
+            lassign $parts id desktop pid x y w h class host
+            lappend result [dict create id $id x $x y $y w $w h $h class $class]
+        }
+        return $result
+    }
+
     # List all windows managed by the window manager
     # Returns list of dicts with keys:
     #   id desktop pid x y w h instance class host title cmdline
