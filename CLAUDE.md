@@ -56,13 +56,28 @@ Windows with the same role but different slot positions are **swappable** - drag
 
 ### Core Components
 
-- **wider.tcl**: Slot editor GUI with window list showing all windows with:
+- **wider.tcl**: Slot editor GUI with window list and monitoring
+
+  **Window List:**
   - Checkbox column to toggle managed/unmanaged state
-  - Editable role and geometry (double-click to edit)
-  - Focus highlighting (yellow) follows active window
-  - Buttons: Refresh, Arrange, Launch, Monitor toggle
-  - Monitors window positions every 500ms and triggers swaps when windows are dragged near other slots
+  - Editable role, geometry, and command (double-click to edit)
+  - Focus highlighting (blue) follows active window
   - All edits auto-save slots.tcl and regenerate autostart files
+
+  **Buttons:**
+  - **Refresh**: Reload window list from X11, updating positions and properties
+  - **Snap**: Save current window positions to their slot configs (opposite of Arrange)
+  - **Arrange**: Move windows to their slot positions. Windows already within 50px of their slot are snapped to exact position first, then remaining windows fill remaining slots. One window per slot, no duplicates.
+  - **Launch**: Start apps for slots that have a `command` but no matching window
+  - **Monitor**: Toggle position monitoring ON/OFF
+
+  **Monitor Mode (when ON):**
+  - Polls window positions every 500ms via `check_movements`
+  - Runs snapback check every 2000ms via `snapback_idle_windows`
+  - **Swap detection**: When a window is dragged near another slot with the *same role*, the two windows swap positions. Threshold: 150px from slot center.
+  - **Snapback**: Windows idle for 2+ seconds that are 20-100px from their assigned slot are snapped back to exact position. Windows moved further away are left alone (user intent).
+  - **Cooldown**: 3-second pause after any swap to prevent oscillation
+  - Swap only works between slots with matching roles (e.g., two "swappable-term" slots)
 
 - **wmctrl.tcl**: Core library in the `wm::` namespace:
 
