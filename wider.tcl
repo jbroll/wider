@@ -10,6 +10,9 @@
 #   wider.tcl --generate   - generate slots.tcl from layout.tcl
 #   wider.tcl --autostart  - generate autostart .desktop files from slots
 
+# Add TkX library path
+lappend auto_path [file join [file dirname [info script]] lib]
+
 source [file join [file dirname [info script]] wmctrl.tcl]
 
 # CLI mode - handle before loading Tk
