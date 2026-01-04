@@ -732,7 +732,7 @@ namespace eval wm {
         set window_to_slot {}  ;# window_id -> slot_name
         set in_position_threshold 50  ;# pixels - window considered "in position"
 
-        # First pass: lock in windows already at their slot positions
+        # First pass: snap windows near their slot to exact position
         dict for {name config} $slots {
             set win [find_window_for_slot $name [dict keys $window_to_slot]]
             if {$win eq ""} continue
@@ -740,10 +740,17 @@ namespace eval wm {
             set id [dict get $win id]
             set dist [slot_distance $win $name]
 
-            # If window is already at this slot position, lock it in
+            # If window is near this slot, claim it and snap to exact position
             if {$dist < $in_position_threshold} {
                 dict set slot_to_window $name $id
                 dict set window_to_slot $id $name
+
+                # Snap to exact slot position
+                if {[dict exists $config x]} {
+                    move $id [dict get $config x] [dict get $config y] \
+                             [dict get $config w] [dict get $config h]
+                }
+                incr count
             }
         }
 
