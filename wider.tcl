@@ -187,14 +187,16 @@ proc check_movements {} {
 }
 
 # Snap back windows that haven't moved recently
+# Also checks for swap-on-rest: if window is near another slot, trigger swap
 proc snapback_idle_windows {} {
-    global window_positions status monitoring
+    global window_positions status monitoring swap_threshold
     variable wm::slots
 
     if {!$monitoring} return
 
     set now [clock milliseconds]
-    set idle_threshold 2000  ;# must be stationary for 2 seconds
+    set idle_threshold 2000   ;# must be stationary for 2 seconds
+    set snap_distance 100     ;# only snap if within this distance of slot
     set snapped 0
 
     dict for {id pos} $window_positions {
@@ -204,22 +206,45 @@ proc snapback_idle_windows {} {
         # Skip if window moved recently (being dragged)
         if {$idle_time < $idle_threshold} continue
 
-        set slot [dict get $pos slot]
-        if {![dict exists $wm::slots $slot]} continue
+        set current_slot [dict get $pos slot]
+        if {![dict exists $wm::slots $current_slot]} continue
 
-        set cfg [dict get $wm::slots $slot]
+        # Build pseudo-window dict for distance calculation
+        set win [dict create x [dict get $pos x] y [dict get $pos y] \
+                             w [dict get $pos w] h [dict get $pos h]]
+
+        # Check if window is near a DIFFERENT slot (swap candidate)
+        set swap_target ""
+        set min_dist 999999
+        dict for {other_slot cfg} $wm::slots {
+            if {$other_slot eq $current_slot} continue
+            set dist [wm::slot_distance $win $other_slot]
+            if {$dist < $swap_threshold && $dist < $min_dist} {
+                set min_dist $dist
+                set swap_target $other_slot
+            }
+        }
+
+        if {$swap_target ne ""} {
+            # Trigger swap instead of snapback
+            set status "Swapping $current_slot <-> $swap_target"
+            wm::swap_slots $current_slot $swap_target
+            update_positions
+            return  ;# Process one swap per cycle
+        }
+
+        # No swap - check if should snap back
+        set cfg [dict get $wm::slots $current_slot]
         set slot_x [dict get $cfg x]
         set slot_y [dict get $cfg y]
-        set win_x [dict get $pos x]
-        set win_y [dict get $pos y]
+        set dx [expr {abs([dict get $pos x] - $slot_x)}]
+        set dy [expr {abs([dict get $pos y] - $slot_y)}]
+        set displacement [expr {sqrt($dx*$dx + $dy*$dy)}]
 
-        # Check if window is out of position
-        set dx [expr {abs($win_x - $slot_x)}]
-        set dy [expr {abs($win_y - $slot_y)}]
-
-        if {$dx > 20 || $dy > 20} {
-            # Snap back to slot
-            wm::arrange_slot $slot
+        # Only snap back if window is close to slot but not exactly on it
+        # If window is far away, user intentionally moved it - don't snap
+        if {$displacement > 20 && $displacement < $snap_distance} {
+            wm::arrange_slot $current_slot
             incr snapped
         }
     }
@@ -672,6 +697,58 @@ proc do_launch {} {
     }
 }
 
+# Snap button - save current window positions to slot config
+# Pauses monitoring to avoid race condition
+proc do_snap {} {
+    global status monitoring
+    variable wm::slots
+
+    # Pause monitoring during snap
+    set was_monitoring $monitoring
+    set monitoring 0
+
+    set count 0
+    set windows [wm::windows]
+
+    # For each window with a role, update its slot geometry
+    foreach win $windows {
+        set role [dict get $win role]
+        if {$role eq ""} continue
+
+        set x [dict get $win x]
+        set y [dict get $win y]
+        set w [dict get $win w]
+        set h [dict get $win h]
+
+        # Find matching slot by role (try lowercase first, then exact)
+        set slot_name [string tolower $role]
+        if {[dict exists $wm::slots $slot_name]} {
+            dict set wm::slots $slot_name x $x
+            dict set wm::slots $slot_name y $y
+            dict set wm::slots $slot_name w $w
+            dict set wm::slots $slot_name h $h
+            incr count
+        } elseif {[dict exists $wm::slots $role]} {
+            dict set wm::slots $role x $x
+            dict set wm::slots $role y $y
+            dict set wm::slots $role w $w
+            dict set wm::slots $role h $h
+            incr count
+        }
+    }
+
+    if {$count > 0} {
+        save_all
+        set status "Snapped $count window positions"
+        refresh_window_list
+    } else {
+        set status "No managed windows to snap"
+    }
+
+    # Resume monitoring
+    set monitoring $was_monitoring
+}
+
 # ========== UI Setup ==========
 
 # Styles
@@ -716,6 +793,7 @@ bind .grid <Button-5> {.grid yview scroll 3 units}
 # Button bar
 ttk::frame .btns
 ttk::button .btns.refresh -text "Refresh" -command refresh_window_list
+ttk::button .btns.snap -text "Snap" -command do_snap
 ttk::button .btns.arrange -text "Arrange" -command do_arrange
 ttk::button .btns.launch -text "Launch" -command do_launch
 ttk::button .btns.monitor -text "Monitor: ON" -command toggle_monitoring -style Monitor.On.TButton
@@ -730,7 +808,7 @@ grid .vsb -in .f -row 1 -column 1 -sticky ns
 grid .btns -in .f -row 2 -column 0 -columnspan 2 -sticky ew -pady 5
 grid .status -in .f -row 3 -column 0 -columnspan 2 -sticky ew
 
-pack .btns.refresh .btns.arrange .btns.launch .btns.monitor -side left -padx 3
+pack .btns.refresh .btns.snap .btns.arrange .btns.launch .btns.monitor -side left -padx 3
 
 grid columnconfigure .f 0 -weight 1
 grid rowconfigure .f 1 -weight 1

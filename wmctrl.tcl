@@ -504,6 +504,12 @@ namespace eval wm {
                 set w [dict get $config w]
                 set h [dict get $config h]
                 puts $f "    geometry ${w}x${h}+${x}+${y}"
+            } elseif {[dict exists $config geometry]} {
+                # Handle geometry string format (parse and rewrite to normalize)
+                set geom [dict get $config geometry]
+                if {![catch {parse_geometry $geom} parsed]} {
+                    puts $f "    geometry $geom"
+                }
             }
             if {[dict exists $config command]} {
                 puts $f "    command  {[dict get $config command]}"
@@ -566,23 +572,40 @@ namespace eval wm {
     }
 
     # Find which slot a window belongs to (by role or class)
+    # When multiple slots match, picks the one closest to window position
     # Returns slot name or empty string
     proc find_slot_for_window {id} {
         variable slots
 
-        # Get window info
+        # Get window info including position for proximity matching
         set win_role [get_role $id]
-
-        # First try to match by role
-        if {$win_role ne ""} {
-            dict for {name config} $slots {
-                if {[dict exists $config role] && [dict get $config role] eq $win_role} {
-                    return $name
-                }
+        set win_info ""
+        foreach w [windows] {
+            if {[dict get $w id] eq $id} {
+                set win_info $w
+                break
             }
         }
 
-        # Fallback: match by class
+        # First try to match by role
+        if {$win_role ne ""} {
+            set role_matches {}
+            dict for {name config} $slots {
+                if {[dict exists $config role] && [dict get $config role] eq $win_role} {
+                    lappend role_matches $name
+                }
+            }
+            # If multiple role matches, pick closest
+            if {[llength $role_matches] == 1} {
+                return [lindex $role_matches 0]
+            } elseif {[llength $role_matches] > 1 && $win_info ne ""} {
+                return [pick_closest_slot $win_info $role_matches]
+            } elseif {[llength $role_matches] > 0} {
+                return [lindex $role_matches 0]
+            }
+        }
+
+        # Fallback: match by class, pick closest if multiple
         set props [xprop $id]
         set win_class ""
         if {[dict exists $props WM_CLASS]} {
@@ -591,10 +614,18 @@ namespace eval wm {
         }
 
         if {$win_class ne ""} {
+            set class_matches {}
             dict for {name config} $slots {
                 if {[dict exists $config class] && [dict get $config class] eq $win_class} {
-                    return $name
+                    lappend class_matches $name
                 }
+            }
+            if {[llength $class_matches] == 1} {
+                return [lindex $class_matches 0]
+            } elseif {[llength $class_matches] > 1 && $win_info ne ""} {
+                return [pick_closest_slot $win_info $class_matches]
+            } elseif {[llength $class_matches] > 0} {
+                return [lindex $class_matches 0]
             }
         }
 
@@ -609,16 +640,46 @@ namespace eval wm {
         }
         set slot [dict get $slots $slot_name]
 
+        # Get slot geometry (handle both formats)
+        if {[dict exists $slot x]} {
+            set sx [dict get $slot x]
+            set sy [dict get $slot y]
+            set sw [dict get $slot w]
+            set sh [dict get $slot h]
+        } elseif {[dict exists $slot geometry]} {
+            set parsed [parse_geometry [dict get $slot geometry]]
+            set sx [dict get $parsed x]
+            set sy [dict get $parsed y]
+            set sw [dict get $parsed w]
+            set sh [dict get $parsed h]
+        } else {
+            return 999999
+        }
+
         # Window center
         set wx [expr {[dict get $win x] + [dict get $win w] / 2}]
         set wy [expr {[dict get $win y] + [dict get $win h] / 2}]
 
         # Slot center
-        set sx [expr {[dict get $slot x] + [dict get $slot w] / 2}]
-        set sy [expr {[dict get $slot y] + [dict get $slot h] / 2}]
+        set scx [expr {$sx + $sw / 2}]
+        set scy [expr {$sy + $sh / 2}]
 
         # Euclidean distance
-        return [expr {sqrt(($wx - $sx)**2 + ($wy - $sy)**2)}]
+        return [expr {sqrt(($wx - $scx)**2 + ($wy - $scy)**2)}]
+    }
+
+    # Helper: pick slot closest to window from list of slot names
+    proc pick_closest_slot {win slot_names} {
+        set best ""
+        set best_dist 999999
+        foreach name $slot_names {
+            set dist [slot_distance $win $name]
+            if {$dist < $best_dist} {
+                set best_dist $dist
+                set best $name
+            }
+        }
+        return $best
     }
 
     # Move window to its slot position
@@ -635,10 +696,22 @@ namespace eval wm {
 
         set slot [dict get $slots $slot_name]
         set id [dict get $win id]
-        set x [dict get $slot x]
-        set y [dict get $slot y]
-        set w [dict get $slot w]
-        set h [dict get $slot h]
+
+        # Handle both x/y/w/h and geometry string formats
+        if {[dict exists $slot x]} {
+            set x [dict get $slot x]
+            set y [dict get $slot y]
+            set w [dict get $slot w]
+            set h [dict get $slot h]
+        } elseif {[dict exists $slot geometry]} {
+            set parsed [parse_geometry [dict get $slot geometry]]
+            set x [dict get $parsed x]
+            set y [dict get $parsed y]
+            set w [dict get $parsed w]
+            set h [dict get $parsed h]
+        } else {
+            return 0
+        }
 
         move $id $x $y $w $h
         return 1
@@ -705,6 +778,10 @@ namespace eval wm {
         }
 
         set cmd [dict get $slot command]
+        # Substitute $role macro with actual role value
+        if {[dict exists $slot role]} {
+            set cmd [string map [list {$role} [dict get $slot role]] $cmd]
+        }
         exec {*}$cmd &
         return 1
     }
@@ -744,6 +821,8 @@ namespace eval wm {
 
             set cmd [dict get $cfg command]
             set role [dict get $cfg role]
+            # Substitute $role macro with actual role value
+            set cmd [string map [list {$role} $role] $cmd]
             set class [expr {[dict exists $cfg class] ? [dict get $cfg class] : ""}]
 
             # Build geometry string
