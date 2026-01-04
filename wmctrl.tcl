@@ -727,10 +727,18 @@ namespace eval wm {
         return $count
     }
 
-    # Swap windows between two slots
+    # Swap windows between two slots (must have same role)
     proc swap_slots {slot1 slot2} {
         variable slots
         if {![dict exists $slots $slot1] || ![dict exists $slots $slot2]} {
+            return 0
+        }
+
+        set s1 [dict get $slots $slot1]
+        set s2 [dict get $slots $slot2]
+
+        # Only swap slots with matching roles
+        if {[dict get $s1 role] ne [dict get $s2 role]} {
             return 0
         }
 
@@ -741,19 +749,10 @@ namespace eval wm {
             return 0
         }
 
-        set s1 [dict get $slots $slot1]
-        set s2 [dict get $slots $slot2]
-
-        # Swap roles
         set id1 [dict get $win1 id]
         set id2 [dict get $win2 id]
-        set role1 [dict get $s1 role]
-        set role2 [dict get $s2 role]
 
-        set_role $id1 $role2
-        set_role $id2 $role1
-
-        # Move to swapped positions
+        # Swap positions only - windows keep their original roles
         move $id1 [dict get $s2 x] [dict get $s2 y] [dict get $s2 w] [dict get $s2 h]
         move $id2 [dict get $s1 x] [dict get $s1 y] [dict get $s1 w] [dict get $s1 h]
 

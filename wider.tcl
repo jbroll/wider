@@ -167,9 +167,13 @@ proc check_movements {} {
 
         if {$dx < 20 && $dy < 20} continue  ;# No significant movement
 
-        # Window moved - check if it's near another slot
+        # Window moved - check if it's near another slot with same role
+        set prev_cfg [dict get $wm::slots $prev_slot]
+        set prev_role [dict get $prev_cfg role]
         dict for {other_slot cfg} $wm::slots {
             if {$other_slot eq $prev_slot} continue
+            # Only consider slots with matching role
+            if {![dict exists $cfg role] || [dict get $cfg role] ne $prev_role} continue
 
             set dist [wm::slot_distance $win $other_slot]
             if {$dist < $swap_threshold} {
@@ -213,11 +217,15 @@ proc snapback_idle_windows {} {
         set win [dict create x [dict get $pos x] y [dict get $pos y] \
                              w [dict get $pos w] h [dict get $pos h]]
 
-        # Check if window is near a DIFFERENT slot (swap candidate)
+        # Check if window is near a DIFFERENT slot with SAME role (swap candidate)
+        set current_cfg [dict get $wm::slots $current_slot]
+        set current_role [dict get $current_cfg role]
         set swap_target ""
         set min_dist 999999
         dict for {other_slot cfg} $wm::slots {
             if {$other_slot eq $current_slot} continue
+            # Only consider slots with matching role
+            if {![dict exists $cfg role] || [dict get $cfg role] ne $current_role} continue
             set dist [wm::slot_distance $win $other_slot]
             if {$dist < $swap_threshold && $dist < $min_dist} {
                 set min_dist $dist
