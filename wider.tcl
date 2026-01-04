@@ -304,6 +304,8 @@ proc snapback_idle_windows {} {
         set cfg [dict get $wm::slots $current_slot]
         set slot_x [dict get $cfg x]
         set slot_y [dict get $cfg y]
+        set slot_w [dict get $cfg w]
+        set slot_h [dict get $cfg h]
         set dx [expr {abs([dict get $pos x] - $slot_x)}]
         set dy [expr {abs([dict get $pos y] - $slot_y)}]
         set displacement [expr {sqrt($dx*$dx + $dy*$dy)}]
@@ -311,7 +313,8 @@ proc snapback_idle_windows {} {
         # Only snap back if window is close to slot but not exactly on it
         # If window is far away, user intentionally moved it - don't snap
         if {$displacement > 20 && $displacement < $snap_distance} {
-            wm::arrange_slot $current_slot
+            # Move this specific window (by ID) to its slot position
+            wm::move $id $slot_x $slot_y $slot_w $slot_h
             incr snapped
         }
     }

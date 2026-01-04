@@ -524,8 +524,9 @@ namespace eval wm {
 
     # Find window matching a slot by role (or class fallback)
     # When multiple windows share a role, picks the one closest to slot geometry
+    # Optional exclude list: window IDs to skip (already assigned to other slots)
     # Returns window dict or empty string
-    proc find_window_for_slot {slot_name} {
+    proc find_window_for_slot {slot_name {exclude {}}} {
         variable slots
         if {![dict exists $slots $slot_name]} {
             return ""
@@ -534,9 +535,11 @@ namespace eval wm {
         set slot_role [dict get $slot role]
         set slot_class [expr {[dict exists $slot class] ? [dict get $slot class] : ""}]
 
-        # Collect all windows matching the role
+        # Collect all windows matching the role (excluding already-assigned)
         set matches {}
         foreach win [windows] {
+            set id [dict get $win id]
+            if {$id in $exclude} continue
             set win_role [dict get $win role]
             if {$win_role ne "" && $win_role eq $slot_role} {
                 lappend matches $win
@@ -559,9 +562,11 @@ namespace eval wm {
             return [lindex $matches 0]
         }
 
-        # Fallback: match by class (for singleton apps)
+        # Fallback: match by class (for singleton apps, excluding already-assigned)
         if {$slot_class ne ""} {
             foreach win [windows] {
+                set id [dict get $win id]
+                if {$id in $exclude} continue
                 if {[dict get $win class] eq $slot_class} {
                     return $win
                 }
@@ -718,11 +723,37 @@ namespace eval wm {
     }
 
     # Arrange all windows to their slot positions
+    # Tracks assigned windows to ensure one window per slot
     proc arrange_all {} {
         variable slots
         set count 0
+        set assigned {}  ;# window IDs already assigned to a slot
+
         dict for {name config} $slots {
-            incr count [arrange_slot $name]
+            set win [find_window_for_slot $name $assigned]
+            if {$win eq ""} continue
+
+            set id [dict get $win id]
+            lappend assigned $id
+
+            # Get slot geometry
+            if {[dict exists $config x]} {
+                set x [dict get $config x]
+                set y [dict get $config y]
+                set w [dict get $config w]
+                set h [dict get $config h]
+            } elseif {[dict exists $config geometry]} {
+                set parsed [parse_geometry [dict get $config geometry]]
+                set x [dict get $parsed x]
+                set y [dict get $parsed y]
+                set w [dict get $parsed w]
+                set h [dict get $parsed h]
+            } else {
+                continue
+            }
+
+            move $id $x $y $w $h
+            incr count
         }
         return $count
     }
