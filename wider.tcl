@@ -363,9 +363,9 @@ proc toggle_monitoring {} {
 proc update_monitor_button {} {
     global monitoring
     if {$monitoring} {
-        .f.monitor configure -text "Monitor: ON" -style Monitor.On.TButton
+        .btns.monitor configure -text "Monitor: ON" -style Monitor.On.TButton
     } else {
-        .f.monitor configure -text "Monitor: OFF" -style Monitor.Off.TButton
+        .btns.monitor configure -text "Monitor: OFF" -style Monitor.Off.TButton
     }
 }
 
@@ -882,16 +882,6 @@ pack .btns.refresh .btns.snap .btns.arrange .btns.launch .btns.monitor -side lef
 
 grid columnconfigure .f 0 -weight 1
 grid rowconfigure .f 1 -weight 1
-
-# Update monitor button reference
-proc update_monitor_button {} {
-    global monitoring
-    if {$monitoring} {
-        .btns.monitor configure -text "Monitor: ON" -style Monitor.On.TButton
-    } else {
-        .btns.monitor configure -text "Monitor: OFF" -style Monitor.Off.TButton
-    }
-}
 
 # Keep window on top (optional - can be toggled)
 # wm attributes . -topmost 1
