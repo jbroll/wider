@@ -367,6 +367,7 @@ proc update_monitor_button {} {
     } else {
         .btns.monitor configure -text "Monitor: OFF" -style Monitor.Off.TButton
     }
+    update idletasks
 }
 
 # Main window setup
