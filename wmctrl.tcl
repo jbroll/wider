@@ -150,19 +150,43 @@ namespace eval wm {
                 # matched
             }
 
-            # Fallback to xprop if wmctrl didn't get the PID
-            if {$pid == 0} {
-                set xpid [xprop $id _NET_WM_PID]
-                if {[string is integer -strict $xpid]} {
+            # Get all needed properties in ONE xprop call
+            set role ""
+            set cmdline ""
+            try {
+                set props [exec xprop -id $id _NET_WM_PID WM_WINDOW_ROLE WM_COMMAND]
+                # Parse _NET_WM_PID
+                if {$pid == 0 && [regexp {_NET_WM_PID.*=\s*(\d+)} $props -> xpid]} {
                     set pid $xpid
                 }
+                # Parse WM_WINDOW_ROLE
+                if {[regexp {WM_WINDOW_ROLE.*=\s*"([^"]*)"} $props -> r]} {
+                    set role $r
+                }
+                # Parse WM_COMMAND
+                if {[regexp {WM_COMMAND.*=\s*\{(.+)\}} $props -> args]} {
+                    set cmdlist {}
+                    foreach {full capture} [regexp -all -inline {"([^"]*)"} $args] {
+                        lappend cmdlist $capture
+                    }
+                    if {[llength $cmdlist] > 0} {
+                        set cmdline [join $cmdlist " "]
+                    }
+                }
+            } on error {} {}
+
+            # Fallback to /proc for cmdline if WM_COMMAND empty
+            if {$cmdline eq "" && $pid != 0} {
+                set path "/proc/$pid/cmdline"
+                if {[file exists $path]} {
+                    catch {
+                        set f [open $path r]
+                        set data [read $f]
+                        close $f
+                        set cmdline [string trimright [string map {\x00 " "} $data]]
+                    }
+                }
             }
-
-            # Get command line (WM_COMMAND or /proc fallback)
-            set cmdline [get_cmdline $id]
-
-            # Get WM_WINDOW_ROLE
-            set role [get_role $id]
 
             lappend result [dict create \
                 id $id \

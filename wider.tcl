@@ -349,14 +349,13 @@ proc monitor_loop {} {
 proc toggle_monitoring {} {
     global monitoring status
     set monitoring [expr {!$monitoring}]
+    update_monitor_button
     if {$monitoring} {
         set status "Monitoring ON"
-        update_positions
-        monitor_loop
+        after idle {update_positions; monitor_loop}
     } else {
         set status "Monitoring OFF"
     }
-    update_monitor_button
 }
 
 # Update monitor button appearance
