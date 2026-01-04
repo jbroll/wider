@@ -2,6 +2,7 @@
 #
 # API:
 #   wm::windows                           - list all windows
+#   wm::windows_quick                     - fast position-only list
 #   wm::state id add|remove|toggle prop...  - change window state
 #   wm::move id ?desktop? x y ?w h?       - move/resize window
 #   wm::xprop id                          - list all properties
@@ -21,6 +22,9 @@
 #   wm::swap_slots slot1 slot2            - swap windows between slots
 
 namespace eval wm {
+
+    # Require TkX for fast Xlib-based window queries
+    package require TkX
 
     # Get/set X window properties via xprop
     # Forms:
@@ -130,89 +134,49 @@ namespace eval wm {
         }
     }
 
-    # Fast window list - positions only, no xprop calls
+    # Fast window list - positions only via TkX (direct Xlib)
     # For monitoring loop where we just need id, x, y, w, h
     proc windows_quick {} {
-        set result {}
-        set output [exec wmctrl -l -x -G -p]
-        foreach line [split $output \n] {
-            set parts [regexp -inline -all {\S+} $line]
-            if {[llength $parts] < 9} continue
-            lassign $parts id desktop pid x y w h class host
-            lappend result [dict create id $id x $x y $y w $w h $h class $class]
-        }
-        return $result
+        return [TkX::list_windows]
     }
 
     # List all windows managed by the window manager
     # Returns list of dicts with keys:
-    #   id desktop pid x y w h instance class host title cmdline
+    #   id x y w h class role pid cmdline
     proc windows {} {
         set result {}
-        set output [exec wmctrl -l -x -G -p]
-        foreach line [split $output \n] {
-            set parts [regexp -inline -all {\S+} $line]
-            if {[llength $parts] < 9} continue
+        foreach win [TkX::list_windows] {
+            set id [dict get $win id]
+            set props [TkX::get_props [scan $id %x]]
 
-            lassign $parts id desktop pid x y w h class host
-            set title [join [lrange $parts 9 end] " "]
+            # Merge window geometry with properties
+            dict set win role [dict get $props role]
+            dict set win pid [dict get $props pid]
 
-            # Split class into instance.class
-            set instance ""
-            set classname $class
-            if {[regexp {^([^.]+)\.(.+)$} $class -> instance classname]} {
-                # matched
-            }
-
-            # Get all needed properties in ONE xprop call
-            set role ""
-            set cmdline ""
-            try {
-                set props [exec xprop -id $id _NET_WM_PID WM_WINDOW_ROLE WM_COMMAND]
-                # Parse _NET_WM_PID
-                if {$pid == 0 && [regexp {_NET_WM_PID.*=\s*(\d+)} $props -> xpid]} {
-                    set pid $xpid
-                }
-                # Parse WM_WINDOW_ROLE
-                if {[regexp {WM_WINDOW_ROLE.*=\s*"([^"]*)"} $props -> r]} {
-                    set role $r
-                }
-                # Parse WM_COMMAND
-                if {[regexp {WM_COMMAND.*=\s*\{(.+)\}} $props -> args]} {
-                    set cmdlist {}
-                    foreach {full capture} [regexp -all -inline {"([^"]*)"} $args] {
-                        lappend cmdlist $capture
-                    }
-                    if {[llength $cmdlist] > 0} {
-                        set cmdline [join $cmdlist " "]
+            # Convert command list to string
+            set cmd [dict get $props command]
+            if {[llength $cmd] > 0} {
+                dict set win cmdline [join $cmd " "]
+            } else {
+                # Fallback to /proc for cmdline
+                set pid [dict get $props pid]
+                if {$pid != 0} {
+                    set path "/proc/$pid/cmdline"
+                    if {[file exists $path]} {
+                        catch {
+                            set f [open $path r]
+                            set data [read $f]
+                            close $f
+                            dict set win cmdline [string trimright [string map {\x00 " "} $data]]
+                        }
                     }
                 }
-            } on error {} {}
-
-            # Fallback to /proc for cmdline if WM_COMMAND empty
-            if {$cmdline eq "" && $pid != 0} {
-                set path "/proc/$pid/cmdline"
-                if {[file exists $path]} {
-                    catch {
-                        set f [open $path r]
-                        set data [read $f]
-                        close $f
-                        set cmdline [string trimright [string map {\x00 " "} $data]]
-                    }
+                if {![dict exists $win cmdline]} {
+                    dict set win cmdline ""
                 }
             }
 
-            lappend result [dict create \
-                id $id \
-                desktop $desktop \
-                pid $pid \
-                x $x y $y w $w h $h \
-                instance $instance \
-                class $classname \
-                host $host \
-                title $title \
-                cmdline $cmdline \
-                role $role]
+            lappend result $win
         }
         return $result
     }
