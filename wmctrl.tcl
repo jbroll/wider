@@ -728,7 +728,8 @@ namespace eval wm {
     }
 
     # Swap windows between two slots (must have same role)
-    proc swap_slots {slot1 slot2} {
+    # Optional: pass window IDs directly to avoid proximity-based lookup issues
+    proc swap_slots {slot1 slot2 {id1 ""} {id2 ""}} {
         variable slots
         if {![dict exists $slots $slot1] || ![dict exists $slots $slot2]} {
             return 0
@@ -742,15 +743,16 @@ namespace eval wm {
             return 0
         }
 
-        set win1 [find_window_for_slot $slot1]
-        set win2 [find_window_for_slot $slot2]
-
-        if {$win1 eq "" || $win2 eq ""} {
-            return 0
+        # If IDs not provided, find windows (legacy behavior)
+        if {$id1 eq "" || $id2 eq ""} {
+            set win1 [find_window_for_slot $slot1]
+            set win2 [find_window_for_slot $slot2]
+            if {$win1 eq "" || $win2 eq ""} {
+                return 0
+            }
+            set id1 [dict get $win1 id]
+            set id2 [dict get $win2 id]
         }
-
-        set id1 [dict get $win1 id]
-        set id2 [dict get $win2 id]
 
         # Swap positions only - windows keep their original roles
         move $id1 [dict get $s2 x] [dict get $s2 y] [dict get $s2 w] [dict get $s2 h]

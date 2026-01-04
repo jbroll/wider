@@ -107,6 +107,7 @@ set monitor_interval 500  ;# ms
 set swap_threshold 150    ;# pixels - distance to trigger swap
 set snapback_interval 2000  ;# ms - how often to snap back
 set window_positions {}   ;# id -> {x y slot last_moved}
+set last_swap_time 0      ;# time of last swap (ms) - skip checks briefly after swap
 
 # Track window positions for managed windows
 proc update_positions {} {
@@ -116,11 +117,17 @@ proc update_positions {} {
 
     foreach win [wm::windows] {
         set id [dict get $win id]
-        set slot [wm::find_slot_for_window $id]
-        if {$slot eq ""} continue
-
         set x [dict get $win x]
         set y [dict get $win y]
+
+        # Preserve existing slot assignment to enable swap detection
+        # Only calculate slot for new windows
+        if {[dict exists $window_positions $id]} {
+            set slot [dict get [dict get $window_positions $id] slot]
+        } else {
+            set slot [wm::find_slot_for_window $id]
+        }
+        if {$slot eq ""} continue
 
         # Check if window moved since last check
         set last_moved $now
@@ -143,10 +150,33 @@ proc update_positions {} {
     set window_positions $new_positions
 }
 
+# Swap slot assignments for two windows after a successful swap
+proc swap_slot_assignments {slot1 slot2} {
+    global window_positions
+
+    # Find window IDs assigned to each slot
+    set id1 ""
+    set id2 ""
+    dict for {id pos} $window_positions {
+        set slot [dict get $pos slot]
+        if {$slot eq $slot1} { set id1 $id }
+        if {$slot eq $slot2} { set id2 $id }
+    }
+
+    # Swap their slot assignments
+    if {$id1 ne "" && $id2 ne ""} {
+        dict set window_positions $id1 slot $slot2
+        dict set window_positions $id2 slot $slot1
+    }
+}
+
 # Check for window movements and trigger swaps
 proc check_movements {} {
-    global window_positions swap_threshold status
+    global window_positions swap_threshold status last_swap_time
     variable wm::slots
+
+    # Skip if a swap just happened
+    if {[clock milliseconds] - $last_swap_time < 3000} return
 
     set current_wins [wm::windows]
 
@@ -177,9 +207,22 @@ proc check_movements {} {
 
             set dist [wm::slot_distance $win $other_slot]
             if {$dist < $swap_threshold} {
+                # Find other window ID from window_positions
+                set other_id ""
+                dict for {wid wpos} $window_positions {
+                    if {[dict get $wpos slot] eq $other_slot} {
+                        set other_id $wid
+                        break
+                    }
+                }
+                if {$other_id eq ""} continue
+
                 # Trigger swap!
                 set status "Swapping $prev_slot <-> $other_slot"
-                wm::swap_slots $prev_slot $other_slot
+                if {[wm::swap_slots $prev_slot $other_slot $id $other_id]} {
+                    swap_slot_assignments $prev_slot $other_slot
+                    set last_swap_time [clock milliseconds]
+                }
                 update_positions
                 return
             }
@@ -193,12 +236,14 @@ proc check_movements {} {
 # Snap back windows that haven't moved recently
 # Also checks for swap-on-rest: if window is near another slot, trigger swap
 proc snapback_idle_windows {} {
-    global window_positions status monitoring swap_threshold
+    global window_positions status monitoring swap_threshold last_swap_time
     variable wm::slots
 
     if {!$monitoring} return
 
+    # Skip if a swap just happened (give wmctrl time to update)
     set now [clock milliseconds]
+    if {$now - $last_swap_time < 3000} return
     set idle_threshold 2000   ;# must be stationary for 2 seconds
     set snap_distance 100     ;# only snap if within this distance of slot
     set snapped 0
@@ -234,9 +279,23 @@ proc snapback_idle_windows {} {
         }
 
         if {$swap_target ne ""} {
+            # Find window IDs from window_positions (not proximity)
+            set other_id ""
+            dict for {wid wpos} $window_positions {
+                if {[dict get $wpos slot] eq $swap_target} {
+                    set other_id $wid
+                    break
+                }
+            }
+            if {$other_id eq ""} continue
+
             # Trigger swap instead of snapback
             set status "Swapping $current_slot <-> $swap_target"
-            wm::swap_slots $current_slot $swap_target
+            if {[wm::swap_slots $current_slot $swap_target $id $other_id]} {
+                # Swap slot assignments in window_positions
+                swap_slot_assignments $current_slot $swap_target
+                set last_swap_time [clock milliseconds]
+            }
             update_positions
             return  ;# Process one swap per cycle
         }
