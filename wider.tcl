@@ -715,7 +715,7 @@ ttk::style configure Monitor.Off.TButton -foreground gray
 bind Entry <Alt-c> {
     if {[%W selection present]} {
         clipboard clear
-        clipboard append [%W get [%W index sel.first] [%W index sel.last]]
+        clipboard append [string range [%W get] [%W index sel.first] [expr {[%W index sel.last] - 1}]]
     }
 }
 bind Entry <Alt-v> {
