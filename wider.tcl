@@ -394,7 +394,7 @@ proc refresh_window_list {} {
             -background white -activebackground white
 
         # Role entry
-        entry $rf.role -width 18
+        entry $rf.role -width 16
         $rf.role insert 0 $role
         bind $rf.role <Return> [list on_role_change $id]
         bind $rf.role <FocusOut> [list on_role_change $id]
@@ -403,13 +403,13 @@ proc refresh_window_list {} {
         label $rf.class -text $class -width 14 -anchor w -background white
 
         # Geometry entry
-        entry $rf.geom -width 16
+        entry $rf.geom -width 20
         $rf.geom insert 0 $geom
         bind $rf.geom <Return> [list on_geom_change $id]
         bind $rf.geom <FocusOut> [list on_geom_change $id]
 
         # Command entry
-        entry $rf.cmd -width 24
+        entry $rf.cmd -width 30
         $rf.cmd insert 0 $command
         bind $rf.cmd <Return> [list on_command_change $id]
         bind $rf.cmd <FocusOut> [list on_command_change $id]
@@ -711,6 +711,22 @@ proc do_snap {} {
 ttk::style configure Monitor.On.TButton -foreground darkgreen
 ttk::style configure Monitor.Off.TButton -foreground gray
 
+# Alt-C/Alt-V copy/paste bindings for entry widgets
+bind Entry <Alt-c> {
+    if {[%W selection present]} {
+        clipboard clear
+        clipboard append [%W get [%W index sel.first] [%W index sel.last]]
+    }
+}
+bind Entry <Alt-v> {
+    if {[catch {set clip [clipboard get]}] == 0} {
+        if {[%W selection present]} {
+            %W delete sel.first sel.last
+        }
+        %W insert insert $clip
+    }
+}
+
 # Main frame
 ttk::frame .f -padding 5
 grid .f -sticky nsew
@@ -720,10 +736,10 @@ grid rowconfigure . 0 -weight 1
 # Header row
 frame .hdr -background #e0e0e0
 label .hdr.cb -text "" -width 3 -background #e0e0e0
-label .hdr.role -text "Role" -width 18 -anchor w -background #e0e0e0 -font {TkDefaultFont 9 bold}
+label .hdr.role -text "Role" -width 16 -anchor w -background #e0e0e0 -font {TkDefaultFont 9 bold}
 label .hdr.class -text "Class" -width 14 -anchor w -background #e0e0e0 -font {TkDefaultFont 9 bold}
-label .hdr.geom -text "Geometry" -width 16 -anchor w -background #e0e0e0 -font {TkDefaultFont 9 bold}
-label .hdr.cmd -text "Command" -width 24 -anchor w -background #e0e0e0 -font {TkDefaultFont 9 bold}
+label .hdr.geom -text "Geometry" -width 20 -anchor w -background #e0e0e0 -font {TkDefaultFont 9 bold}
+label .hdr.cmd -text "Command" -width 30 -anchor w -background #e0e0e0 -font {TkDefaultFont 9 bold}
 label .hdr.title -text "Title" -anchor w -background #e0e0e0 -font {TkDefaultFont 9 bold}
 grid .hdr.cb .hdr.role .hdr.class .hdr.geom .hdr.cmd .hdr.title -sticky w -padx 2 -pady 3
 grid columnconfigure .hdr 5 -weight 1
