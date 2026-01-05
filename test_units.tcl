@@ -65,21 +65,11 @@ puts "\n=== slot file I/O tests ===\n"
 set test_dir [file join /tmp wider-test-[pid]]
 file mkdir $test_dir
 
-# Test slot save/load roundtrip
-set wm::slots {
-    terminal-left {
-        role terminal-left
-        class Xfce4-terminal
-        x 0 y 0 w 960 h 1080
-        command {xfce4-terminal --role=terminal-left}
-    }
-    browser {
-        role browser
-        class Firefox
-        x 960 y 0 w 960 h 1080
-        command firefox
-    }
-}
+# Test slot save/load roundtrip (list format)
+set wm::slots [list \
+    [dict create role terminal-left class Xfce4-terminal x 0 y 0 w 960 h 1080 command {xfce4-terminal --role=terminal-left}] \
+    [dict create role browser class Firefox x 960 y 0 w 960 h 1080 command firefox] \
+]
 
 set slots_file [file join $test_dir slots.tcl]
 wm::save_slots $slots_file
@@ -96,16 +86,26 @@ test "load returns slot count" {
     expr {$count == 2}
 } 1
 
+# Find slot by role
+proc find_slot {role} {
+    foreach slot $wm::slots {
+        if {[dict get $slot role] eq $role} {
+            return $slot
+        }
+    }
+    return {}
+}
+
 test "slot role preserved" {
-    dict get $wm::slots terminal-left role
+    dict get [find_slot terminal-left] role
 } terminal-left
 
 test "slot class preserved" {
-    dict get $wm::slots browser class
+    dict get [find_slot browser] class
 } Firefox
 
 test "slot geometry parsed" {
-    dict get $wm::slots terminal-left w
+    dict get [find_slot terminal-left] w
 } 960
 
 puts "\n=== autostart generation tests ===\n"
@@ -123,33 +123,27 @@ test "desktop files created" {
 } 1
 
 # Check content of one file
-set content [read [open [file join $autostart_dir wider-terminal-left.desktop] r]]
+set content [read [open [lindex $desktop_files 0] r]]
 test "desktop file has role" {
-    string match "*--role=terminal-left*" $content
-} 1
-
-test "desktop file has X-Wider-Slot" {
-    string match "*X-Wider-Slot=terminal-left*" $content
+    expr {[string match "*--role=terminal-left*" $content] || [string match "*--role=browser*" $content]}
 } 1
 
 puts "\n=== slot_distance tests ===\n"
 
-set wm::slots {
-    slot1 {x 0 y 0 w 100 h 100}
-    slot2 {x 200 y 0 w 100 h 100}
-}
+set slot1 [dict create x 0 y 0 w 100 h 100 role slot1]
+set slot2 [dict create x 200 y 0 w 100 h 100 role slot2]
 
-# Mock window at slot1 center
+# Mock window at slot1 position
 set win1 {x 0 y 0 w 100 h 100}
-test "window at slot center has zero distance" {
-    expr {[wm::slot_distance $win1 slot1] < 1}
+test "window at slot position has zero distance" {
+    expr {[wm::slot_distance_to $win1 $slot1] < 1}
 } 1
 
 # Mock window between slots
 set win2 {x 100 y 0 w 100 h 100}
 test "window between slots has equal distance" {
-    set d1 [wm::slot_distance $win2 slot1]
-    set d2 [wm::slot_distance $win2 slot2]
+    set d1 [wm::slot_distance_to $win2 $slot1]
+    set d2 [wm::slot_distance_to $win2 $slot2]
     expr {abs($d1 - $d2) < 1}
 } 1
 

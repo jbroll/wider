@@ -1,7 +1,7 @@
 [Desktop Entry]
 Name=Shooter
 Comment=Capture screen region
-Exec=tclsh /home/john/src/wider/shooter.tcl
+Exec=/home/john/src/wider/shooter
 Icon=applets-screenshooter
 Terminal=false
 Type=Application

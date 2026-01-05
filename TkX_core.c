@@ -2,6 +2,52 @@
 
 #include "TkX.h"
 
+/* Global atom cache */
+AtomCache Atoms = {0};
+
+void InitAtoms(Display *dpy) {
+    if (Atoms.dpy == dpy) return;
+    Atoms.dpy = dpy;
+    Atoms.NET_CLIENT_LIST    = XInternAtom(dpy, "_NET_CLIENT_LIST", False);
+    Atoms.NET_WM_DESKTOP     = XInternAtom(dpy, "_NET_WM_DESKTOP", False);
+    Atoms.NET_WM_NAME        = XInternAtom(dpy, "_NET_WM_NAME", False);
+    Atoms.NET_WM_PID         = XInternAtom(dpy, "_NET_WM_PID", False);
+    Atoms.NET_WM_STATE       = XInternAtom(dpy, "_NET_WM_STATE", False);
+    Atoms.NET_WM_STATE_ABOVE = XInternAtom(dpy, "_NET_WM_STATE_ABOVE", False);
+    Atoms.NET_ACTIVE_WINDOW  = XInternAtom(dpy, "_NET_ACTIVE_WINDOW", False);
+    Atoms.NET_WM_MOVERESIZE  = XInternAtom(dpy, "_NET_WM_MOVERESIZE", False);
+    Atoms.NET_FRAME_EXTENTS  = XInternAtom(dpy, "_NET_FRAME_EXTENTS", False);
+    Atoms.MOTIF_WM_HINTS     = XInternAtom(dpy, "_MOTIF_WM_HINTS", False);
+    Atoms.WM_WINDOW_ROLE     = XInternAtom(dpy, "WM_WINDOW_ROLE", False);
+    Atoms.UTF8_STRING        = XInternAtom(dpy, "UTF8_STRING", False);
+}
+
+Display* GetDisplay(Tcl_Interp *interp) {
+    Tk_Window tkwin = Tk_MainWindow(interp);
+    if (!tkwin) return NULL;
+    Display *dpy = Tk_Display(tkwin);
+    InitAtoms(dpy);
+    return dpy;
+}
+
+void SendClientMessage(Display *dpy, Window win, Atom msgType,
+                       long d0, long d1, long d2, long d3, long d4) {
+    Window root = DefaultRootWindow(dpy);
+    XEvent ev = {0};
+    ev.xclient.type = ClientMessage;
+    ev.xclient.window = win;
+    ev.xclient.message_type = msgType;
+    ev.xclient.format = 32;
+    ev.xclient.data.l[0] = d0;
+    ev.xclient.data.l[1] = d1;
+    ev.xclient.data.l[2] = d2;
+    ev.xclient.data.l[3] = d3;
+    ev.xclient.data.l[4] = d4;
+    XSendEvent(dpy, root, False,
+               SubstructureRedirectMask | SubstructureNotifyMask, &ev);
+    XFlush(dpy);
+}
+
 Window WalkToFrame(Display *dpy, Window win, int *offX, int *offY) {
     Window root = DefaultRootWindow(dpy);
     Window parent, *children;
@@ -34,6 +80,7 @@ int GetWinInfo(Tcl_Interp *interp, const char *winPath, WinInfo *info) {
     }
 
     info->dpy = Tk_Display(tkwin);
+    InitAtoms(info->dpy);
     info->tkWin = Tk_WindowId(tkwin);
     if (info->tkWin == None) {
         Tcl_SetResult(interp, "window not yet mapped", TCL_STATIC);

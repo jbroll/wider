@@ -1,4 +1,4 @@
-#!/usr/bin/env tclsh
+#!/usr/bin/env wish
 # wider.tcl - Window layout save/restore utility
 #
 # Usage:
@@ -10,10 +10,10 @@
 #   wider.tcl --generate   - generate slots.tcl from layout.tcl
 #   wider.tcl --autostart  - generate autostart .desktop files from slots
 
-# Add TkX library path
-lappend auto_path [file join [file dirname [info script]] lib]
-
-source [file join [file dirname [info script]] wmctrl.tcl]
+# Resolve symlinks to find actual script location
+set script_dir [file dirname [file normalize [info script]]]
+lappend auto_path [file join $script_dir lib]
+source [file join $script_dir wmctrl.tcl]
 
 # CLI mode - handle before loading Tk
 if {[llength $argv] > 0} {
@@ -109,126 +109,112 @@ set monitoring 1
 set monitor_interval 500  ;# ms
 set swap_threshold 150    ;# pixels - distance to trigger swap
 
-# Stateless slot assignment and snap
-# Each cycle: assign windows to slots by proximity, snap non-active windows
-# Swap detection: if window is dragged near an occupied slot, swap them
 proc assign_and_snap_slots {} {
     global status swap_threshold
 
-    # Get all windows and active window
     set windows [wm::windows]
     set active_id [TkX::active_window]
 
-    # Build role -> slots mapping
-    set slots_by_role {}
-    dict for {name cfg} $wm::slots {
-        if {![dict exists $cfg role]} continue
-        dict lappend slots_by_role [dict get $cfg role] $name
-    }
-
-    # First pass: find windows that are exactly in their slot
-    # and windows that need assignment
-    set slot_occupant {}  ;# slot_name -> window_id (for windows in slot)
-    set floating {}       ;# windows not in any slot: {id win_data}
-
+    # Group windows by role
+    set by_role {}
     foreach win $windows {
         set role [dict get $win role]
         if {$role eq ""} continue
-        if {![dict exists $slots_by_role $role]} continue
+        dict lappend by_role $role $win
+    }
 
-        set id [dict get $win id]
-        set wx [dict get $win x]
-        set wy [dict get $win y]
+    # Sort slots left-to-right, top-to-bottom
+    set sorted_slots [lsort -command {apply {{a b} {
+        set cmp [expr {[dict get $a x] - [dict get $b x]}]
+        if {$cmp != 0} { return $cmp }
+        expr {[dict get $a y] - [dict get $b y]}
+    }}} $wm::slots]
 
-        # Check if window is exactly in any slot of its role
-        set found_slot ""
-        foreach slot_name [dict get $slots_by_role $role] {
-            set cfg [dict get $wm::slots $slot_name]
-            if {$wx == [dict get $cfg x] && $wy == [dict get $cfg y]} {
-                set found_slot $slot_name
-                break
+    set assigned {}      ;# window ids already assigned
+    set unassigned {}    ;# {id win_data slot} - displaced windows with target slot
+    set empty_slots {}   ;# slots with no candidate
+
+    foreach slot $sorted_slots {
+        dict with slot {
+            if {![info exists role]} continue
+
+            # Get candidates (same role, not yet assigned)
+            set candidates {}
+            if {[dict exists $by_role $role]} {
+                foreach win [dict get $by_role $role] {
+                    set id [dict get $win id]
+                    if {$id ni $assigned} {
+                        set wx [dict get $win x]
+                        set wy [dict get $win y]
+                        set dist [expr {$wx == $x && $wy == $y ? 0 : [wm::slot_distance_to $win $slot]}]
+                        lappend candidates [list $id $dist $win]
+                    }
+                }
             }
-        }
 
-        if {$found_slot ne ""} {
-            dict set slot_occupant $found_slot $id
-        } else {
-            lappend floating [list $id $win]
+            if {[llength $candidates] == 0} {
+                lappend empty_slots $slot
+                continue
+            }
+
+            set candidates [lsort -real -index 1 $candidates]
+            lassign [lindex $candidates 0] first_id first_dist first_win
+
+            if {$first_dist == 0} {
+                # Window is exactly in slot - check for swap
+                if {[llength $candidates] > 1} {
+                    lassign [lindex $candidates 1] second_id second_dist second_win
+                    if {$second_dist <= $swap_threshold} {
+                        lappend assigned $second_id
+                        lappend unassigned [list $first_id $first_win]
+                        wm::move $second_id 0 $x $y $w $h
+                        set status "Swapped"
+                        continue
+                    }
+                }
+                lappend assigned $first_id
+            } elseif {$first_dist <= $swap_threshold} {
+                lappend assigned $first_id
+                if {$first_id ne $active_id} {
+                    wm::move $first_id 0 $x $y $w $h
+                }
+            } else {
+                # No window close enough - slot is empty
+                lappend empty_slots $slot
+            }
         }
     }
 
-    # Second pass: process floating windows
-    # Check for swap or snap to closest slot
-    foreach entry $floating {
+    # Place displaced windows in empty slots
+    foreach entry $unassigned {
         lassign $entry win_id win_data
-        set role [dict get $win_data role]
+        if {[llength $empty_slots] == 0} break
 
-        # Find closest slot of matching role
-        set best_slot ""
+        set win_role [dict get $win_data role]
+        set best_slot {}
         set best_dist 999999
-        foreach slot_name [dict get $slots_by_role $role] {
-            set dist [wm::slot_distance $win_data $slot_name]
+
+        foreach slot $empty_slots {
+            if {[dict get $slot role] ne $win_role} continue
+            set dist [wm::slot_distance_to $win_data $slot]
             if {$dist < $best_dist} {
                 set best_dist $dist
-                set best_slot $slot_name
+                set best_slot $slot
             }
         }
 
-        if {$best_slot eq ""} continue
-
-        set cfg [dict get $wm::slots $best_slot]
-        set slot_x [dict get $cfg x]
-        set slot_y [dict get $cfg y]
-        set slot_w [dict get $cfg w]
-        set slot_h [dict get $cfg h]
-
-        # Check if this slot is occupied
-        if {[dict exists $slot_occupant $best_slot]} {
-            # Slot is occupied - check if we're close enough for swap
-            if {$best_dist <= $swap_threshold} {
-                set occupant_id [dict get $slot_occupant $best_slot]
-
-                # Find empty slot for the displaced window
-                set empty_slot ""
-                foreach other_slot [dict get $slots_by_role $role] {
-                    if {![dict exists $slot_occupant $other_slot]} {
-                        set empty_slot $other_slot
-                        break
-                    }
-                }
-
-                if {$empty_slot ne ""} {
-                    # Perform swap
-                    set empty_cfg [dict get $wm::slots $empty_slot]
-
-                    # Move occupant to empty slot (if not active)
-                    if {$occupant_id ne $active_id} {
-                        wm::move $occupant_id 0 [dict get $empty_cfg x] [dict get $empty_cfg y] \
-                                 [dict get $empty_cfg w] [dict get $empty_cfg h]
-                    }
-                    dict set slot_occupant $empty_slot $occupant_id
-
-                    # Move floating window to this slot (if not active)
-                    if {$win_id ne $active_id} {
-                        wm::move $win_id 0 $slot_x $slot_y $slot_w $slot_h
-                    }
-                    dict set slot_occupant $best_slot $win_id
-
-                    set status "Swapped windows"
-                }
-            }
-            # else: too far from occupied slot, do nothing (don't fight user)
-        } else {
-            # Slot is empty - snap to it (if not active)
+        if {[dict size $best_slot] > 0} {
+            set idx [lsearch -exact $empty_slots $best_slot]
+            set empty_slots [lreplace $empty_slots $idx $idx]
             if {$win_id ne $active_id} {
-                wm::move $win_id 0 $slot_x $slot_y $slot_w $slot_h
+                dict with best_slot {
+                    wm::move $win_id 0 $x $y $w $h
+                }
             }
-            dict set slot_occupant $best_slot $win_id
         }
     }
 }
 
-# Monitor loop
 proc monitor_loop {} {
     global monitoring monitor_interval
 
@@ -238,7 +224,6 @@ proc monitor_loop {} {
     after $monitor_interval monitor_loop
 }
 
-# Toggle monitoring
 proc toggle_monitoring {} {
     global monitoring status
     set monitoring [expr {!$monitoring}]
@@ -251,7 +236,6 @@ proc toggle_monitoring {} {
     }
 }
 
-# Update monitor button appearance
 proc update_monitor_button {} {
     global monitoring
     if {$monitoring} {
@@ -262,16 +246,12 @@ proc update_monitor_button {} {
     update idletasks
 }
 
-# Main window setup
 wm title . "Wider - Slot Editor"
 wm resizable . 1 1
 wm minsize . 600 300
 tk appname wider
-
-# Status variable
 set status "Ready"
 
-# Track window data by id
 set window_data {}
 
 # Current row widgets by window id
@@ -320,7 +300,6 @@ proc focus_highlight_loop {} {
 # Refresh window list
 proc refresh_window_list {} {
     global status window_data row_widgets
-    variable wm::slots
 
     # Clear existing rows
     foreach child [winfo children .grid.inner] {
@@ -351,6 +330,38 @@ proc refresh_window_list {} {
         return [string compare $ra $rb]
     }}} $filtered_wins]
 
+    # Assign slots to windows (1:1 matching, closest first)
+    set claimed_slots {}  ;# indices of slots already claimed
+    set win_to_slot {}    ;# window id -> slot dict
+
+    foreach win $filtered_wins {
+        set id [dict get $win id]
+        set win_role [dict get $win role]
+
+        set best_slot {}
+        set best_idx -1
+        set best_dist 999999
+
+        set idx -1
+        foreach slot $wm::slots {
+            incr idx
+            if {$idx in $claimed_slots} continue
+            # Match by role
+            if {$win_role eq "" || ![dict exists $slot role] || [dict get $slot role] ne $win_role} continue
+            set dist [wm::slot_distance_to $win $slot]
+            if {$dist < $best_dist} {
+                set best_dist $dist
+                set best_slot $slot
+                set best_idx $idx
+            }
+        }
+
+        if {$best_idx >= 0} {
+            lappend claimed_slots $best_idx
+            dict set win_to_slot $id $best_slot
+        }
+    }
+
     set row 0
     foreach win $filtered_wins {
         set id [dict get $win id]
@@ -364,23 +375,22 @@ proc refresh_window_list {} {
         set title [dict get $win title]
         set geom "${w}x${h}+${x}+${y}"
 
-        # Check if managed (has matching slot)
-        set slot [wm::find_slot_for_window $id]
-        set managed [expr {$slot ne ""}]
+        # Check if managed (has claimed slot)
+        set slot [expr {[dict exists $win_to_slot $id] ? [dict get $win_to_slot $id] : {}}]
+        set managed [expr {[dict size $slot] > 0}]
 
-        # Get command from slot config if managed
+        # Get command from slot config, or fall back to window cmdline
         set command ""
-        if {$managed && [dict exists $wm::slots $slot]} {
-            set cfg [dict get $wm::slots $slot]
-            if {[dict exists $cfg command]} {
-                set command [dict get $cfg command]
-            }
+        if {$managed && [dict exists $slot command]} {
+            set command [dict get $slot command]
+        } elseif {[dict exists $win cmdline]} {
+            set command [dict get $win cmdline]
         }
 
         # Store window data
         dict set window_data $id [dict create \
             class $class role $role geom $geom title $title \
-            x $x y $y w $w h $h managed $managed slot $slot command $command]
+            x $x y $y w $w h $h managed $managed command $command]
 
         # Create row frame
         set rf .grid.inner.r$row
@@ -438,7 +448,6 @@ proc refresh_window_list {} {
     set status "Refreshed $row windows"
 }
 
-# Checkbox toggle handler
 proc on_managed_toggle {id} {
     global window_data status row_widgets
 
@@ -449,18 +458,19 @@ proc on_managed_toggle {id} {
     set win [dict get $window_data $id]
     set class [dict get $win class]
     set role [dict get $win role]
+    set x [dict get $win x]
+    set y [dict get $win y]
 
     if {!$managed} {
-        # Unmanage - remove from slots
-        set slot [dict get $win slot]
-        if {$slot ne ""} {
-            dict unset wm::slots $slot
+        # Unmanage - remove matching slot
+        set idx [wm::find_slot_index $role $x $y]
+        if {$idx >= 0} {
+            wm::remove_slot_at $idx
         }
         dict set window_data $id managed 0
-        dict set window_data $id slot ""
         set status "Removed $class from slots"
     } else {
-        # Manage - add to slots
+        # Manage - add slot
         if {$role eq ""} {
             set role [string tolower $class]
             wm::set_role $id $role
@@ -468,26 +478,22 @@ proc on_managed_toggle {id} {
             [dict get [dict get $row_widgets $id] role] delete 0 end
             [dict get [dict get $row_widgets $id] role] insert 0 $role
         }
-        set slot_name [string tolower $role]
-        # Preserve existing command if any
         set cmd [dict get $win command]
         set slot_dict [dict create \
             role $role class $class \
-            x [dict get $win x] y [dict get $win y] \
+            x $x y $y \
             w [dict get $win w] h [dict get $win h]]
         if {$cmd ne ""} {
             dict set slot_dict command $cmd
         }
-        dict set wm::slots $slot_name $slot_dict
+        wm::add_slot $slot_dict
         dict set window_data $id managed 1
-        dict set window_data $id slot $slot_name
         set status "Added $class to slots"
     }
 
     save_all
 }
 
-# Role change handler
 proc on_role_change {id} {
     global window_data status row_widgets
 
@@ -502,31 +508,31 @@ proc on_role_change {id} {
     if {$new_role eq ""} return
 
     set class [dict get $win class]
+    set x [dict get $win x]
+    set y [dict get $win y]
 
     # Update window role
     wm::set_role $id $new_role
     dict set window_data $id role $new_role
 
-    # Update or create slot
-    set old_slot [dict get $win slot]
-    if {$old_slot ne "" && [dict exists $wm::slots $old_slot]} {
-        dict unset wm::slots $old_slot
+    # Remove old slot if exists
+    set old_idx [wm::find_slot_index $old_role $x $y]
+    if {$old_idx >= 0} {
+        wm::remove_slot_at $old_idx
     }
 
-    set slot_name [string tolower $new_role]
-    # Preserve existing command if any
+    # Create new slot
     set cmd [dict get $win command]
     set slot_dict [dict create \
         role $new_role class $class \
-        x [dict get $win x] y [dict get $win y] \
+        x $x y $y \
         w [dict get $win w] h [dict get $win h]]
     if {$cmd ne ""} {
         dict set slot_dict command $cmd
     }
-    dict set wm::slots $slot_name $slot_dict
+    wm::add_slot $slot_dict
 
     dict set window_data $id managed 1
-    dict set window_data $id slot $slot_name
 
     # Update checkbox
     set var [dict get [dict get $row_widgets $id] var]
@@ -536,7 +542,6 @@ proc on_role_change {id} {
     save_all
 }
 
-# Geometry change handler
 proc on_geom_change {id} {
     global window_data status row_widgets
 
@@ -557,38 +562,35 @@ proc on_geom_change {id} {
         return
     }
 
-    set x [dict get $parsed x]
-    set y [dict get $parsed y]
-    set w [dict get $parsed w]
-    set h [dict get $parsed h]
+    set new_x [dict get $parsed x]
+    set new_y [dict get $parsed y]
+    set new_w [dict get $parsed w]
+    set new_h [dict get $parsed h]
 
     # Move/resize the window
-    wm::move $id $x $y $w $h
-
-    # Update window_data
-    dict set window_data $id x $x
-    dict set window_data $id y $y
-    dict set window_data $id w $w
-    dict set window_data $id h $h
-    dict set window_data $id geom $new_geom
+    wm::move $id $new_x $new_y $new_w $new_h
 
     # Update slot if managed
-    set slot [dict get $win slot]
-    if {$slot ne "" && [dict exists $wm::slots $slot]} {
-        dict set wm::slots $slot x $x
-        dict set wm::slots $slot y $y
-        dict set wm::slots $slot w $w
-        dict set wm::slots $slot h $h
+    set role [dict get $win role]
+    set old_x [dict get $win x]
+    set old_y [dict get $win y]
+    if {[wm::update_slot_geometry $role $old_x $old_y $new_x $new_y $new_w $new_h]} {
         save_all
     }
+
+    # Update window_data
+    dict set window_data $id x $new_x
+    dict set window_data $id y $new_y
+    dict set window_data $id w $new_w
+    dict set window_data $id h $new_h
+    dict set window_data $id geom $new_geom
 
     set status "Geometry: $new_geom"
 }
 
-# Command change handler
+# Command change handler - sets WM_COMMAND on the window
 proc on_command_change {id} {
     global window_data status row_widgets
-    variable wm::slots
 
     if {![dict exists $window_data $id]} return
 
@@ -599,25 +601,17 @@ proc on_command_change {id} {
 
     if {$new_cmd eq $old_cmd} return
 
+    # Set WM_COMMAND on the actual window
+    if {$new_cmd ne ""} {
+        wm::set_command $id $new_cmd
+    }
+
     # Update window_data
     dict set window_data $id command $new_cmd
 
-    # Update slot if managed
-    set slot [dict get $win slot]
-    if {$slot ne "" && [dict exists $wm::slots $slot]} {
-        if {$new_cmd eq ""} {
-            # Remove command from slot
-            dict unset wm::slots $slot command
-        } else {
-            dict set wm::slots $slot command $new_cmd
-        }
-        save_all
-    }
-
-    set status "Command: $new_cmd"
+    set status "Set WM_COMMAND: $new_cmd"
 }
 
-# Save slots and regenerate autostart
 proc save_all {} {
     global status
     wm::save_slots
@@ -625,7 +619,6 @@ proc save_all {} {
     set status "Saved slots and autostart files"
 }
 
-# Arrange button
 proc do_arrange {} {
     global status
     try {
@@ -637,7 +630,6 @@ proc do_arrange {} {
     }
 }
 
-# Launch button
 proc do_launch {} {
     global status
     try {
@@ -654,54 +646,81 @@ proc do_launch {} {
 }
 
 # Snap button - save current window positions to slot config
-# Pauses monitoring to avoid race condition
+# Creates slots for windows that don't have one
 proc do_snap {} {
     global status monitoring
-    variable wm::slots
 
-    # Pause monitoring during snap
     set was_monitoring $monitoring
     set monitoring 0
 
     set count 0
     set windows [wm::windows]
+    set claimed_slots {}  ;# slot indices already matched to a window
 
-    # For each window with a role, update its slot geometry
+    # For each window with a role, find or create a slot
     foreach win $windows {
         set role [dict get $win role]
         if {$role eq ""} continue
 
+        set id [dict get $win id]
+        set class [dict get $win class]
         set x [dict get $win x]
         set y [dict get $win y]
         set w [dict get $win w]
         set h [dict get $win h]
+        set cmd [dict get $win cmdline]
 
-        # Find matching slot by role (try lowercase first, then exact)
-        set slot_name [string tolower $role]
-        if {[dict exists $wm::slots $slot_name]} {
-            dict set wm::slots $slot_name x $x
-            dict set wm::slots $slot_name y $y
-            dict set wm::slots $slot_name w $w
-            dict set wm::slots $slot_name h $h
+        # Find closest unclaimed slot with matching role
+        set best_slot {}
+        set best_idx -1
+        set best_dist 999999
+
+        set idx -1
+        foreach slot $wm::slots {
+            incr idx
+            if {$idx in $claimed_slots} continue
+            # Match by role
+            if {![dict exists $slot role] || [dict get $slot role] ne $role} continue
+            set dist [wm::slot_distance_to $win $slot]
+            if {$dist < $best_dist} {
+                set best_dist $dist
+                set best_slot $slot
+                set best_idx $idx
+            }
+        }
+
+        if {$best_idx >= 0} {
+            # Update existing slot
+            lappend claimed_slots $best_idx
+            set slot $best_slot
+            dict set slot x $x
+            dict set slot y $y
+            dict set slot w $w
+            dict set slot h $h
+            if {$cmd ne ""} {
+                dict set slot command $cmd
+            }
+            wm::set_slot $best_idx $slot
             incr count
-        } elseif {[dict exists $wm::slots $role]} {
-            dict set wm::slots $role x $x
-            dict set wm::slots $role y $y
-            dict set wm::slots $role w $w
-            dict set wm::slots $role h $h
+        } else {
+            # Create new slot
+            set slot_dict [dict create role $role class $class x $x y $y w $w h $h]
+            if {$cmd ne ""} {
+                dict set slot_dict command $cmd
+            }
+            wm::add_slot $slot_dict
             incr count
         }
     }
 
     if {$count > 0} {
         save_all
-        set status "Snapped $count window positions"
+        set status "Snapped $count windows"
         refresh_window_list
     } else {
-        set status "No managed windows to snap"
+        set status "No windows to snap"
     }
 
-    # Resume monitoring
     set monitoring $was_monitoring
 }
 
@@ -796,11 +815,11 @@ after idle {
     set sw [winfo screenwidth .]
     wm geometry . 700x400+[expr {$sw - 750}]+50
 
-    # Set _NET_WM_PID
+    # Set _NET_WM_PID using TkX
     after 100 {
         set frame [wm frame .]
         if {$frame ne "0x0"} {
-            catch {exec xprop -id $frame -f _NET_WM_PID 32c -set _NET_WM_PID [pid]}
+            catch {TkX::set_property [scan $frame %x] _NET_WM_PID [pid]}
         }
     }
 

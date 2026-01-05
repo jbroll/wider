@@ -3,13 +3,7 @@
 #include "TkX.h"
 
 int DoRGBACheck(Tcl_Interp *interp) {
-    Tk_Window tkwin = Tk_MainWindow(interp);
-    if (!tkwin) {
-        Tcl_SetResult(interp, "no Tk main window", TCL_STATIC);
-        return TCL_ERROR;
-    }
-
-    Display *dpy = Tk_Display(tkwin);
+    REQUIRE_DISPLAY(interp, dpy);
     int screen = DefaultScreen(dpy);
     int depth;
 
@@ -142,13 +136,7 @@ int DoCreateARGBChild(Tcl_Interp *interp, const char *winPath,
 }
 
 int DoCreateARGBWindow(Tcl_Interp *interp, int x, int y, int w, int h) {
-    Tk_Window tkwin = Tk_MainWindow(interp);
-    if (!tkwin) {
-        Tcl_SetResult(interp, "no Tk main window", TCL_STATIC);
-        return TCL_ERROR;
-    }
-
-    Display *dpy = Tk_Display(tkwin);
+    REQUIRE_DISPLAY(interp, dpy);
     int screen = DefaultScreen(dpy);
 
     XVisualInfo vinfo;
@@ -178,12 +166,11 @@ int DoCreateARGBWindow(Tcl_Interp *interp, int x, int y, int w, int h) {
         return TCL_ERROR;
     }
 
-    Atom prop = XInternAtom(dpy, "_MOTIF_WM_HINTS", False);
     MotifWmHints hints = {0};
     hints.flags = MWM_HINTS_DECORATIONS;
     hints.decorations = 0;
-    XChangeProperty(dpy, win, prop, prop, 32, PropModeReplace,
-                    (unsigned char *)&hints, 5);
+    XChangeProperty(dpy, win, Atoms.MOTIF_WM_HINTS, Atoms.MOTIF_WM_HINTS,
+                    32, PropModeReplace, (unsigned char *)&hints, 5);
 
     Tcl_SetObjResult(interp, Tcl_NewLongObj((long)win));
     return TCL_OK;
@@ -192,13 +179,7 @@ int DoCreateARGBWindow(Tcl_Interp *interp, int x, int y, int w, int h) {
 int DoARGBFillRect(Tcl_Interp *interp, long winId,
                    int x, int y, int w, int h,
                    int r, int g, int b, int a) {
-    Tk_Window tkwin = Tk_MainWindow(interp);
-    if (!tkwin) {
-        Tcl_SetResult(interp, "no Tk main window", TCL_STATIC);
-        return TCL_ERROR;
-    }
-
-    Display *dpy = Tk_Display(tkwin);
+    REQUIRE_DISPLAY(interp, dpy);
     Window win = (Window)winId;
 
     XWindowAttributes attr;
@@ -234,21 +215,14 @@ int DoARGBFillRect(Tcl_Interp *interp, long winId,
 }
 
 int DoMapWindow(Tcl_Interp *interp, long winId) {
-    Tk_Window tkwin = Tk_MainWindow(interp);
-    if (!tkwin) {
-        Tcl_SetResult(interp, "no Tk main window", TCL_STATIC);
-        return TCL_ERROR;
-    }
-    Display *dpy = Tk_Display(tkwin);
+    REQUIRE_DISPLAY(interp, dpy);
     Window win = (Window)winId;
 
     XMapWindow(dpy, win);
     XRaiseWindow(dpy, win);
 
-    Atom wmState = XInternAtom(dpy, "_NET_WM_STATE", False);
-    Atom wmStateAbove = XInternAtom(dpy, "_NET_WM_STATE_ABOVE", False);
-    XChangeProperty(dpy, win, wmState, XA_ATOM, 32, PropModeReplace,
-                    (unsigned char *)&wmStateAbove, 1);
+    XChangeProperty(dpy, win, Atoms.NET_WM_STATE, XA_ATOM, 32, PropModeReplace,
+                    (unsigned char *)&Atoms.NET_WM_STATE_ABOVE, 1);
 
     XFlush(dpy);
     XSync(dpy, False);

@@ -58,10 +58,9 @@ namespace eval wm {
                 return ""
             }
             2 {
-                # Set property
+                # Set property using TkX
                 lassign $args prop value
-                # Determine type - default to UTF8_STRING
-                exec xprop -id $id -f $prop 8u -set $prop $value
+                TkX::set_property [scan $id %x] $prop $value
             }
             default {
                 error "usage: wm::xprop id ?prop? ?value?"
@@ -83,6 +82,11 @@ namespace eval wm {
         TkX::set_property [scan $id %x] WM_WINDOW_ROLE $role
     }
 
+    # Set WM_COMMAND property (ICCCM session management)
+    proc set_command {id cmd} {
+        TkX::set_property [scan $id %x] WM_COMMAND $cmd
+    }
+
     # Parse X11 geometry string (WxH+X+Y or WxH-X-Y)
     # Returns dict with keys: w h x y
     proc parse_geometry {geom {screenw 0} {screenh 0}} {
@@ -94,9 +98,10 @@ namespace eval wm {
             catch {set screenh [winfo screenheight .]}
             if {$screenh == 0} {set screenh 1080}
         }
-        if {[regexp {^(\d+)x(\d+)([+-])(\d+)([+-])(\d+)$} $geom -> w h xs x ys y]} {
-            if {$xs eq "-"} { set x [expr {$screenw - $x - $w}] }
-            if {$ys eq "-"} { set y [expr {$screenh - $y - $h}] }
+        # Handle WxH+X+Y, WxH-X-Y, and WxH+-X+-Y (negative coordinates)
+        if {[regexp {^(\d+)x(\d+)([+-])(-?\d+)([+-])(-?\d+)$} $geom -> w h xs x ys y]} {
+            if {$xs eq "-" && $x >= 0} { set x [expr {$screenw - $x - $w}] }
+            if {$ys eq "-" && $y >= 0} { set y [expr {$screenh - $y - $h}] }
             return [dict create w $w h $h x $x y $y]
         }
         error "invalid geometry: $geom"
@@ -338,11 +343,11 @@ namespace eval wm {
     # Slot configuration file
     variable slots_file [file join $::env(HOME) .config wider slots.tcl]
 
-    # Loaded slots (dict: name -> slot config)
+    # Loaded slots (list of slot dicts)
+    # Each slot: {role <role> class <class> x <x> y <y> w <w> h <h> ?command <cmd>?}
     variable slots {}
 
     # Load slot configuration from file
-    # File format uses 'slot' command to define each slot
     proc load_slots {{filename ""}} {
         variable slots_file
         variable slots
@@ -361,10 +366,17 @@ namespace eval wm {
         set interp [interp create -safe]
 
         # Define 'slot' command that captures slot definitions
+        # Supports both old format (slot name {...}) and new format (slot {...})
         set slot_list {}
-        $interp alias slot apply {{name config} {
+        $interp alias slot apply {{args} {
             upvar slot_list sl
-            lappend sl $name $config
+            if {[llength $args] == 1} {
+                # New format: slot {config dict}
+                lappend sl [lindex $args 0]
+            } else {
+                # Old format: slot name {config dict} - ignore name
+                lappend sl [lindex $args 1]
+            }
         }}
 
         # Source the config file
@@ -380,7 +392,7 @@ namespace eval wm {
 
         # Process loaded slots
         set slots {}
-        foreach {name config} $slot_list {
+        foreach config $slot_list {
             # Parse geometry if present
             if {[dict exists $config geometry]} {
                 set geom [parse_geometry [dict get $config geometry]]
@@ -388,11 +400,12 @@ namespace eval wm {
                 dict set config y [dict get $geom y]
                 dict set config w [dict get $geom w]
                 dict set config h [dict get $geom h]
+                dict unset config geometry
             }
-            dict set slots $name $config
+            lappend slots $config
         }
 
-        return [dict size $slots]
+        return [llength $slots]
     }
 
     # Save current slot configuration to file
@@ -411,49 +424,71 @@ namespace eval wm {
         puts $f "# Slot configuration - [clock format [clock seconds]]"
         puts $f ""
 
-        dict for {name config} $slots {
-            puts $f "slot $name {"
-            if {[dict exists $config role]} {
-                puts $f "    role     [dict get $config role]"
+        foreach slot $slots {
+            puts $f "slot {"
+            if {[dict exists $slot role]} {
+                puts $f "    role     [dict get $slot role]"
             }
-            if {[dict exists $config class]} {
-                puts $f "    class    [dict get $config class]"
+            if {[dict exists $slot class]} {
+                puts $f "    class    [dict get $slot class]"
             }
-            # Write geometry in X11 format
-            if {[dict exists $config x] && [dict exists $config w]} {
-                set x [dict get $config x]
-                set y [dict get $config y]
-                set w [dict get $config w]
-                set h [dict get $config h]
+            if {[dict exists $slot x] && [dict exists $slot w]} {
+                set x [dict get $slot x]
+                set y [dict get $slot y]
+                set w [dict get $slot w]
+                set h [dict get $slot h]
                 puts $f "    geometry ${w}x${h}+${x}+${y}"
-            } elseif {[dict exists $config geometry]} {
-                # Handle geometry string format (parse and rewrite to normalize)
-                set geom [dict get $config geometry]
-                if {![catch {parse_geometry $geom} parsed]} {
-                    puts $f "    geometry $geom"
-                }
             }
-            if {[dict exists $config command]} {
-                puts $f "    command  {[dict get $config command]}"
+            if {[dict exists $slot command]} {
+                puts $f "    command  {[dict get $slot command]}"
             }
             puts $f "}"
             puts $f ""
         }
         close $f
 
-        return [dict size $slots]
+        return [llength $slots]
+    }
+
+    # Add a slot to the list
+    proc add_slot {slot} {
+        variable slots
+        lappend slots $slot
+    }
+
+    # Remove slots matching a predicate (proc that takes slot, returns true to remove)
+    proc remove_slots {predicate} {
+        variable slots
+        set new_slots {}
+        foreach slot $slots {
+            if {![{*}$predicate $slot]} {
+                lappend new_slots $slot
+            }
+        }
+        set slots $new_slots
+    }
+
+    # Update a slot's geometry by matching role and old position
+    proc update_slot_geometry {role old_x old_y new_x new_y new_w new_h} {
+        variable slots
+        set idx [find_slot_index $role $old_x $old_y]
+        if {$idx < 0} {
+            return 0
+        }
+        set slot [lindex $slots $idx]
+        dict set slot x $new_x
+        dict set slot y $new_y
+        dict set slot w $new_w
+        dict set slot h $new_h
+        lset slots $idx $slot
+        return 1
     }
 
     # Find window matching a slot by role (or class fallback)
     # When multiple windows share a role, picks the one closest to slot geometry
     # Optional exclude list: window IDs to skip (already assigned to other slots)
     # Returns window dict or empty string
-    proc find_window_for_slot {slot_name {exclude {}}} {
-        variable slots
-        if {![dict exists $slots $slot_name]} {
-            return ""
-        }
-        set slot [dict get $slots $slot_name]
+    proc find_window_for_slot {slot {exclude {}}} {
         set slot_role [dict get $slot role]
         set slot_class [expr {[dict exists $slot class] ? [dict get $slot class] : ""}]
 
@@ -473,7 +508,7 @@ namespace eval wm {
             set best ""
             set best_dist 999999
             foreach win $matches {
-                set dist [slot_distance $win $slot_name]
+                set dist [slot_distance_to $win $slot]
                 if {$dist < $best_dist} {
                     set best_dist $dist
                     set best $win
@@ -498,152 +533,111 @@ namespace eval wm {
         return ""
     }
 
-    # Find which slot a window belongs to (by role or class)
-    # When multiple slots match, picks the one closest to window position
-    # exclude: list of slot names already assigned (one window per slot)
-    # Returns slot name or empty string
-    proc find_slot_for_window {id {exclude {}}} {
+    # Find slot for a window by ID (closest matching slot)
+    # Returns slot dict or empty dict
+    proc find_slot_for_window {id} {
         variable slots
-
-        # Get window info including position for proximity matching
-        set win_role [get_role $id]
-        set win_info ""
-        foreach w [windows] {
-            if {[dict get $w id] eq $id} {
-                set win_info $w
-                break
-            }
-        }
-
-        # First try to match by role
-        if {$win_role ne ""} {
-            set role_matches {}
-            dict for {name config} $slots {
-                if {$name in $exclude} continue
-                if {[dict exists $config role] && [dict get $config role] eq $win_role} {
-                    lappend role_matches $name
+        foreach win [windows] {
+            if {[dict get $win id] eq $id} {
+                set matching [find_slots_for_window $win]
+                if {[llength $matching] > 0} {
+                    return [pick_closest_slot $win $matching]
                 }
-            }
-            # If multiple role matches, pick closest
-            if {[llength $role_matches] == 1} {
-                return [lindex $role_matches 0]
-            } elseif {[llength $role_matches] > 1 && $win_info ne ""} {
-                return [pick_closest_slot $win_info $role_matches]
-            } elseif {[llength $role_matches] > 0} {
-                return [lindex $role_matches 0]
+                return {}
             }
         }
-
-        # Fallback: match by class, pick closest if multiple
-        set props [xprop $id]
-        set win_class ""
-        if {[dict exists $props WM_CLASS]} {
-            # WM_CLASS format: "instance", "class"
-            regexp {"[^"]*",\s*"([^"]*)"} [dict get $props WM_CLASS] -> win_class
-        }
-
-        if {$win_class ne ""} {
-            set class_matches {}
-            dict for {name config} $slots {
-                if {$name in $exclude} continue
-                if {[dict exists $config class] && [dict get $config class] eq $win_class} {
-                    lappend class_matches $name
-                }
-            }
-            if {[llength $class_matches] == 1} {
-                return [lindex $class_matches 0]
-            } elseif {[llength $class_matches] > 1 && $win_info ne ""} {
-                return [pick_closest_slot $win_info $class_matches]
-            } elseif {[llength $class_matches] > 0} {
-                return [lindex $class_matches 0]
-            }
-        }
-
-        return ""
+        return {}
     }
 
-    # Calculate distance from window center to slot center
-    proc slot_distance {win slot_name} {
+    # Find slots matching a window (by role or class)
+    # Returns list of matching slot dicts
+    proc find_slots_for_window {win_data} {
         variable slots
-        if {![dict exists $slots $slot_name]} {
-            return 999999
-        }
-        set slot [dict get $slots $slot_name]
+        set win_role [dict get $win_data role]
+        set win_class [dict get $win_data class]
 
-        # Get slot geometry (handle both formats)
-        if {[dict exists $slot x]} {
+        set matches {}
+        foreach slot $slots {
+            if {$win_role ne "" && [dict exists $slot role] && [dict get $slot role] eq $win_role} {
+                lappend matches $slot
+            } elseif {$win_class ne "" && [dict exists $slot class] && [dict get $slot class] eq $win_class} {
+                lappend matches $slot
+            }
+        }
+        return $matches
+    }
+
+    # Find slot index by matching role and position
+    proc find_slot_index {role x y {threshold 200}} {
+        variable slots
+        set idx -1
+        foreach slot $slots {
+            incr idx
+            if {![dict exists $slot role] || [dict get $slot role] ne $role} continue
             set sx [dict get $slot x]
             set sy [dict get $slot y]
-            set sw [dict get $slot w]
-            set sh [dict get $slot h]
-        } elseif {[dict exists $slot geometry]} {
-            set parsed [parse_geometry [dict get $slot geometry]]
-            set sx [dict get $parsed x]
-            set sy [dict get $parsed y]
-            set sw [dict get $parsed w]
-            set sh [dict get $parsed h]
-        } else {
+            if {abs($x - $sx) < $threshold && abs($y - $sy) < $threshold} {
+                return $idx
+            }
+        }
+        return -1
+    }
+
+    # Update slot at index
+    proc set_slot {idx slot} {
+        variable slots
+        lset slots $idx $slot
+    }
+
+    # Remove slot at index
+    proc remove_slot_at {idx} {
+        variable slots
+        set slots [lreplace $slots $idx $idx]
+    }
+
+    # Calculate distance from window to slot (center to center)
+    # Distance from window position to slot position (corner to corner)
+    proc slot_distance_to {win slot} {
+        if {![dict exists $slot x]} {
             return 999999
         }
 
-        # Window center
-        set wx [expr {[dict get $win x] + [dict get $win w] / 2}]
-        set wy [expr {[dict get $win y] + [dict get $win h] / 2}]
+        set wx [dict get $win x]
+        set wy [dict get $win y]
+        set sx [dict get $slot x]
+        set sy [dict get $slot y]
 
-        # Slot center
-        set scx [expr {$sx + $sw / 2}]
-        set scy [expr {$sy + $sh / 2}]
-
-        # Euclidean distance
-        return [expr {sqrt(($wx - $scx)**2 + ($wy - $scy)**2)}]
+        # Euclidean distance between top-left corners
+        return [expr {sqrt(($wx - $sx)**2 + ($wy - $sy)**2)}]
     }
 
-    # Helper: pick slot closest to window from list of slot names
-    proc pick_closest_slot {win slot_names} {
-        set best ""
+    # Helper: pick slot closest to window from list of slots
+    proc pick_closest_slot {win slot_list} {
+        set best {}
         set best_dist 999999
-        foreach name $slot_names {
-            set dist [slot_distance $win $name]
+        foreach slot $slot_list {
+            set dist [slot_distance_to $win $slot]
             if {$dist < $best_dist} {
                 set best_dist $dist
-                set best $name
+                set best $slot
             }
         }
         return $best
     }
 
-    # Move window to its slot position
-    proc arrange_slot {slot_name} {
-        variable slots
-        if {![dict exists $slots $slot_name]} {
-            return 0
-        }
-
-        set win [find_window_for_slot $slot_name]
+    # Move window to a slot position
+    proc arrange_slot {slot} {
+        set win [find_window_for_slot $slot]
         if {$win eq ""} {
             return 0
         }
 
-        set slot [dict get $slots $slot_name]
-        set id [dict get $win id]
-
-        # Handle both x/y/w/h and geometry string formats
-        if {[dict exists $slot x]} {
-            set x [dict get $slot x]
-            set y [dict get $slot y]
-            set w [dict get $slot w]
-            set h [dict get $slot h]
-        } elseif {[dict exists $slot geometry]} {
-            set parsed [parse_geometry [dict get $slot geometry]]
-            set x [dict get $parsed x]
-            set y [dict get $parsed y]
-            set w [dict get $parsed w]
-            set h [dict get $parsed h]
-        } else {
-            return 0
+        dict with slot {
+            if {![info exists x]} {
+                return 0
+            }
+            move [dict get $win id] $x $y $w $h
         }
-
-        move $id $x $y $w $h
         return 1
     }
 
@@ -653,122 +647,85 @@ namespace eval wm {
     proc arrange_all {} {
         variable slots
         set count 0
-        set slot_to_window {}  ;# slot_name -> window_id
-        set window_to_slot {}  ;# window_id -> slot_name
-        set in_position_threshold 50  ;# pixels - window considered "in position"
+        set assigned_slots {}   ;# list of slot indices already assigned
+        set assigned_windows {} ;# list of window IDs already assigned
+        set in_position_threshold 50
 
         # First pass: snap windows near their slot to exact position
-        dict for {name config} $slots {
-            set win [find_window_for_slot $name [dict keys $window_to_slot]]
+        set idx -1
+        foreach slot $slots {
+            incr idx
+            set win [find_window_for_slot $slot $assigned_windows]
             if {$win eq ""} continue
 
             set id [dict get $win id]
-            set dist [slot_distance $win $name]
+            set dist [slot_distance_to $win $slot]
 
-            # If window is near this slot, claim it and snap to exact position
             if {$dist < $in_position_threshold} {
-                dict set slot_to_window $name $id
-                dict set window_to_slot $id $name
-
-                # Snap to exact slot position
-                if {[dict exists $config x]} {
-                    move $id [dict get $config x] [dict get $config y] \
-                             [dict get $config w] [dict get $config h]
+                lappend assigned_slots $idx
+                lappend assigned_windows $id
+                # Only move if not already at exact position
+                if {$dist > 0} {
+                    dict with slot {
+                        if {[info exists x]} {
+                            move $id $x $y $w $h
+                        }
+                    }
+                    incr count
                 }
-                incr count
             }
         }
 
         # Second pass: move remaining windows to remaining slots
-        dict for {name config} $slots {
-            # Skip if slot already has a window
-            if {[dict exists $slot_to_window $name]} continue
+        set idx -1
+        foreach slot $slots {
+            incr idx
+            if {$idx in $assigned_slots} continue
 
-            # Find an unassigned window for this slot
-            set win [find_window_for_slot $name [dict keys $window_to_slot]]
+            set win [find_window_for_slot $slot $assigned_windows]
             if {$win eq ""} continue
 
             set id [dict get $win id]
-            dict set slot_to_window $name $id
-            dict set window_to_slot $id $name
+            lappend assigned_slots $idx
+            lappend assigned_windows $id
 
-            # Get slot geometry
-            if {[dict exists $config x]} {
-                set x [dict get $config x]
-                set y [dict get $config y]
-                set w [dict get $config w]
-                set h [dict get $config h]
-            } elseif {[dict exists $config geometry]} {
-                set parsed [parse_geometry [dict get $config geometry]]
-                set x [dict get $parsed x]
-                set y [dict get $parsed y]
-                set w [dict get $parsed w]
-                set h [dict get $parsed h]
-            } else {
-                continue
+            dict with slot {
+                if {[info exists x]} {
+                    move $id $x $y $w $h
+                }
             }
-
-            move $id $x $y $w $h
             incr count
         }
         return $count
     }
 
-    # Swap windows between two slots (must have same role)
-    # Optional: pass window IDs directly to avoid proximity-based lookup issues
-    proc swap_slots {slot1 slot2 {id1 ""} {id2 ""}} {
-        variable slots
-        if {![dict exists $slots $slot1] || ![dict exists $slots $slot2]} {
-            return 0
+    # Swap windows between two slots
+    # Takes slot dicts and window IDs
+    proc swap_slots {slot1 slot2 id1 id2} {
+        dict with slot1 {
+            set x1 $x; set y1 $y; set w1 $w; set h1 $h
         }
-
-        set s1 [dict get $slots $slot1]
-        set s2 [dict get $slots $slot2]
-
-        # Only swap slots with matching roles
-        if {[dict get $s1 role] ne [dict get $s2 role]} {
-            return 0
+        dict with slot2 {
+            set x2 $x; set y2 $y; set w2 $w; set h2 $h
         }
-
-        # If IDs not provided, find windows (legacy behavior)
-        if {$id1 eq "" || $id2 eq ""} {
-            set win1 [find_window_for_slot $slot1]
-            set win2 [find_window_for_slot $slot2]
-            if {$win1 eq "" || $win2 eq ""} {
-                return 0
-            }
-            set id1 [dict get $win1 id]
-            set id2 [dict get $win2 id]
-        }
-
-        # Swap positions only - windows keep their original roles
-        move $id1 [dict get $s2 x] [dict get $s2 y] [dict get $s2 w] [dict get $s2 h]
-        move $id2 [dict get $s1 x] [dict get $s1 y] [dict get $s1 w] [dict get $s1 h]
-
+        move $id1 $x2 $y2 $w2 $h2
+        move $id2 $x1 $y1 $w1 $h1
         return 1
     }
 
     # Launch app for a slot (if not already running)
-    proc launch_slot {slot_name} {
-        variable slots
-        if {![dict exists $slots $slot_name]} {
-            return 0
-        }
-
+    proc launch_slot {slot} {
         # Check if window already exists
-        if {[find_window_for_slot $slot_name] ne ""} {
+        if {[find_window_for_slot $slot] ne ""} {
             return 0
         }
 
-        set slot [dict get $slots $slot_name]
-        if {![dict exists $slot command]} {
-            return 0
-        }
-
-        set cmd [dict get $slot command]
-        # Substitute $role macro with actual role value
-        if {[dict exists $slot role]} {
-            set cmd [string map [list {$role} [dict get $slot role]] $cmd]
+        dict with slot {
+            if {![info exists command]} {
+                return 0
+            }
+            set geom "${w}x${h}+${x}+${y}"
+            set cmd [string map [list {$role} $role {$geometry} $geom] $command]
         }
         exec {*}$cmd &
         return 1
@@ -778,8 +735,8 @@ namespace eval wm {
     proc launch_all {} {
         variable slots
         set count 0
-        dict for {name config} $slots {
-            incr count [launch_slot $name]
+        foreach slot $slots {
+            incr count [launch_slot $slot]
         }
         return $count
     }
@@ -788,7 +745,7 @@ namespace eval wm {
     variable autostart_dir [file join $::env(HOME) .config autostart]
 
     # Generate autostart .desktop files from slots
-    # Files are named wider-{slot-name}.desktop for reliable updating
+    # Files are named wider-{idx}.desktop
     proc generate_autostart {{dirname ""}} {
         variable autostart_dir
         variable slots
@@ -804,50 +761,37 @@ namespace eval wm {
         }
 
         set count 0
-        dict for {name cfg} $slots {
-            if {![dict exists $cfg command]} continue
+        set idx 0
+        foreach slot $slots {
+            incr idx
+            dict with slot {
+                if {![info exists command]} continue
 
-            set cmd [dict get $cfg command]
-            set role [dict get $cfg role]
-            # Substitute $role macro with actual role value
-            set cmd [string map [list {$role} $role] $cmd]
-            set class [expr {[dict exists $cfg class] ? [dict get $cfg class] : ""}]
-
-            # Build geometry string
-            set geom ""
-            if {[dict exists $cfg w] && [dict exists $cfg x]} {
-                set w [dict get $cfg w]
-                set h [dict get $cfg h]
-                set x [dict get $cfg x]
-                set y [dict get $cfg y]
                 set geom "${w}x${h}+${x}+${y}"
-            }
+                set cmd [string map [list {$role} $role {$geometry} $geom] $command]
+                set cls [expr {[info exists class] ? $class : ""}]
 
-            # Build exec command with role
-            set exec $cmd
-            # Add --role if not already present
-            if {![string match "*--role=*" $exec]} {
-                append exec " --role=$role"
-            }
-            # Add --geometry for apps that support it
-            if {$geom ne "" && $class in {Xfce4-terminal}} {
-                if {![string match "*--geometry=*" $exec]} {
+                # Build exec command with role
+                set exec $cmd
+                if {![string match "*--role=*" $exec]} {
+                    append exec " --role=$role"
+                }
+                if {$cls in {Xfce4-terminal} && ![string match "*--geometry=*" $exec]} {
                     append exec " --geometry=$geom"
                 }
+
+                # Write .desktop file
+                set filename [file join $dirname wider-$idx.desktop]
+                set f [open $filename w]
+                puts $f "\[Desktop Entry\]"
+                puts $f "Type=Application"
+                puts $f "Name=$role (Wider)"
+                puts $f "Exec=$exec"
+                puts $f "X-GNOME-Autostart-enabled=true"
+                close $f
+
+                incr count
             }
-
-            # Write .desktop file
-            set filename [file join $dirname wider-$name.desktop]
-            set f [open $filename w]
-            puts $f "\[Desktop Entry\]"
-            puts $f "Type=Application"
-            puts $f "Name=$name (Wider)"
-            puts $f "Exec=$exec"
-            puts $f "X-Wider-Slot=$name"
-            puts $f "X-GNOME-Autostart-enabled=true"
-            close $f
-
-            incr count
         }
 
         return $count
@@ -875,69 +819,52 @@ namespace eval wm {
         source $layout_filename
 
         # Group windows by class+geometry (w x h) for shared roles
-        # Key: "class:WxH" -> list of windows
         set geom_groups {}
         foreach win $layout {
-            set class [dict get $win class]
-            if {$class eq "Wider.tcl"} continue
-            set w [dict get $win w]
-            set h [dict get $win h]
-            set key "$class:${w}x${h}"
-            dict lappend geom_groups $key $win
+            dict with win {
+                if {$class eq "Wider.tcl"} continue
+                set key "$class:${w}x${h}"
+                dict lappend geom_groups $key $win
+            }
         }
 
         # Generate slots - windows in same geom group share a role
         set slots {}
-        set role_idx {}  ;# track index within each role group
 
         dict for {key wins} $geom_groups {
-            regexp {^([^:]+):(\d+)x(\d+)$} $key -> class w h
+            regexp {^([^:]+):(\d+)x(\d+)$} $key -> cls ww hh
 
-            # Determine base role name
             set instance [dict get [lindex $wins 0] instance]
             set base_role [string tolower $instance]
-
-            # If multiple windows share this geometry, they're swappable
             set group_size [llength $wins]
-            set idx 0
 
             foreach win $wins {
-                incr idx
-                set x [dict get $win x]
-                set y [dict get $win y]
-                set cmdline [dict get $win cmdline]
-
-                if {$group_size > 1} {
-                    # Shared role for swappable windows
-                    set role "${base_role}-${w}x${h}"
-                    set slot_name "${base_role}-${w}x${h}-$idx"
-                } else {
-                    # Singleton
-                    set role $base_role
-                    set slot_name $base_role
-                }
-
-                # Build slot config
-                set config [dict create \
-                    role $role \
-                    class $class \
-                    x $x y $y w $w h $h]
-
-                # Add command if available
-                if {$cmdline ne ""} {
-                    if {$group_size > 1 && $class eq "Xfce4-terminal"} {
-                        dict set config command "$cmdline --role=$role"
+                dict with win {
+                    if {$group_size > 1} {
+                        set role "${base_role}-${ww}x${hh}"
                     } else {
-                        dict set config command $cmdline
+                        set role $base_role
                     }
-                }
 
-                dict set slots $slot_name $config
+                    set config [dict create \
+                        role $role \
+                        class $cls \
+                        x $x y $y w $ww h $hh]
+
+                    if {$cmdline ne ""} {
+                        if {$group_size > 1 && $cls eq "Xfce4-terminal"} {
+                            dict set config command "$cmdline --role=$role"
+                        } else {
+                            dict set config command $cmdline
+                        }
+                    }
+
+                    lappend slots $config
+                }
             }
         }
 
-        # Save generated slots
         save_slots $slots_filename
-        return [dict size $slots]
+        return [llength $slots]
     }
 }

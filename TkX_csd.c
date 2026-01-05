@@ -7,21 +7,8 @@ static int DoMoveResize(Tcl_Interp *interp, const char *winPath, int action) {
     if (GetWinInfo(interp, winPath, &wi) != TCL_OK)
         return TCL_ERROR;
 
-    Atom moveresize = XInternAtom(wi.dpy, "_NET_WM_MOVERESIZE", False);
-
-    XEvent ev = {0};
-    ev.xclient.type = ClientMessage;
-    ev.xclient.message_type = moveresize;
-    ev.xclient.display = wi.dpy;
-    ev.xclient.window = wi.tkWin;
-    ev.xclient.format = 32;
-    ev.xclient.data.l[2] = action;
-    ev.xclient.data.l[3] = Button1;
-
-    XSendEvent(wi.dpy, DefaultRootWindow(wi.dpy), False,
-               SubstructureRedirectMask | SubstructureNotifyMask, &ev);
-    XFlush(wi.dpy);
-
+    SendClientMessage(wi.dpy, wi.tkWin, Atoms.NET_WM_MOVERESIZE,
+                      0, 0, action, Button1, 0);
     return TCL_OK;
 }
 
@@ -30,13 +17,12 @@ int DoNodecor(Tcl_Interp *interp, const char *winPath) {
     if (GetWinInfo(interp, winPath, &wi) != TCL_OK)
         return TCL_ERROR;
 
-    Atom prop = XInternAtom(wi.dpy, "_MOTIF_WM_HINTS", False);
-
     MotifWmHints hints = {0};
     hints.flags = MWM_HINTS_DECORATIONS;
     hints.decorations = 0;
 
-    XChangeProperty(wi.dpy, wi.tkWin, prop, prop, 32, PropModeReplace,
+    XChangeProperty(wi.dpy, wi.tkWin, Atoms.MOTIF_WM_HINTS,
+                    Atoms.MOTIF_WM_HINTS, 32, PropModeReplace,
                     (unsigned char *)&hints, 5);
     XFlush(wi.dpy);
 

@@ -9,13 +9,8 @@ if {[winfo depth .] != 32} {
     exit 1
 }
 
-# Find script directory
-set scriptDir [file dirname [info script]]
-if {$scriptDir eq "" || $scriptDir eq "."} {
-    set scriptDir [pwd]
-}
-set scriptDir [file normalize $scriptDir]
-
+# Resolve symlinks to find actual script location
+set scriptDir [file dirname [file normalize [info script]]]
 lappend auto_path $scriptDir
 lappend auto_path [file join $scriptDir lib]
 package require TkX

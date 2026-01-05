@@ -3,22 +3,15 @@
 #include "TkX.h"
 
 int DoListWindows(Tcl_Interp *interp) {
-    Tk_Window tkwin = Tk_MainWindow(interp);
-    if (!tkwin) {
-        Tcl_SetResult(interp, "no Tk main window", TCL_STATIC);
-        return TCL_ERROR;
-    }
-    Display *dpy = Tk_Display(tkwin);
+    REQUIRE_DISPLAY(interp, dpy);
     Window root = DefaultRootWindow(dpy);
 
-    Atom clientList = XInternAtom(dpy, "_NET_CLIENT_LIST", False);
-    Atom netWmDesktop = XInternAtom(dpy, "_NET_WM_DESKTOP", False);
     Atom actualType;
     int actualFormat;
     unsigned long nitems, bytesAfter;
     unsigned char *data = NULL;
 
-    if (XGetWindowProperty(dpy, root, clientList, 0, 1024, False,
+    if (XGetWindowProperty(dpy, root, Atoms.NET_CLIENT_LIST, 0, 1024, False,
                            XA_WINDOW, &actualType, &actualFormat,
                            &nitems, &bytesAfter, &data) != Success || !data) {
         Tcl_SetResult(interp, "failed to get _NET_CLIENT_LIST", TCL_STATIC);
@@ -48,7 +41,7 @@ int DoListWindows(Tcl_Interp *interp) {
         long desktop = 0;
         unsigned char *desktopData = NULL;
         unsigned long desktopItems;
-        if (XGetWindowProperty(dpy, win, netWmDesktop, 0, 1, False,
+        if (XGetWindowProperty(dpy, win, Atoms.NET_WM_DESKTOP, 0, 1, False,
                                XA_CARDINAL, &actualType, &actualFormat,
                                &desktopItems, &bytesAfter, &desktopData) == Success
             && desktopData && desktopItems > 0) {
@@ -76,12 +69,10 @@ int DoListWindows(Tcl_Interp *interp) {
             Tcl_NewStringObj("desktop", -1), Tcl_NewLongObj(desktop));
 
         char *title = NULL;
-        Atom netWmName = XInternAtom(dpy, "_NET_WM_NAME", False);
-        Atom utf8String = XInternAtom(dpy, "UTF8_STRING", False);
         unsigned char *titleData = NULL;
         unsigned long titleItems;
-        if (XGetWindowProperty(dpy, win, netWmName, 0, 256, False,
-                               utf8String, &actualType, &actualFormat,
+        if (XGetWindowProperty(dpy, win, Atoms.NET_WM_NAME, 0, 256, False,
+                               Atoms.UTF8_STRING, &actualType, &actualFormat,
                                &titleItems, &bytesAfter, &titleData) == Success
             && titleData && titleItems > 0) {
             title = (char *)titleData;
@@ -106,23 +97,18 @@ int DoListWindows(Tcl_Interp *interp) {
 }
 
 int DoGetProps(Tcl_Interp *interp, long winId) {
-    Tk_Window tkwin = Tk_MainWindow(interp);
-    if (!tkwin) {
-        Tcl_SetResult(interp, "no Tk main window", TCL_STATIC);
-        return TCL_ERROR;
-    }
-    Display *dpy = Tk_Display(tkwin);
+    REQUIRE_DISPLAY(interp, dpy);
     Window win = (Window)winId;
 
     Tcl_Obj *result = Tcl_NewDictObj();
 
-    Atom roleAtom = XInternAtom(dpy, "WM_WINDOW_ROLE", False);
     Atom actualType;
     int actualFormat;
     unsigned long nitems, bytesAfter;
     unsigned char *data = NULL;
 
-    if (XGetWindowProperty(dpy, win, roleAtom, 0, 128, False,
+    /* WM_WINDOW_ROLE */
+    if (XGetWindowProperty(dpy, win, Atoms.WM_WINDOW_ROLE, 0, 128, False,
                            XA_STRING, &actualType, &actualFormat,
                            &nitems, &bytesAfter, &data) == Success && data) {
         Tcl_DictObjPut(interp, result,
@@ -134,9 +120,9 @@ int DoGetProps(Tcl_Interp *interp, long winId) {
             Tcl_NewStringObj("role", -1), Tcl_NewStringObj("", -1));
     }
 
-    Atom pidAtom = XInternAtom(dpy, "_NET_WM_PID", False);
+    /* _NET_WM_PID */
     data = NULL;
-    if (XGetWindowProperty(dpy, win, pidAtom, 0, 1, False,
+    if (XGetWindowProperty(dpy, win, Atoms.NET_WM_PID, 0, 1, False,
                            XA_CARDINAL, &actualType, &actualFormat,
                            &nitems, &bytesAfter, &data) == Success && data && nitems > 0) {
         unsigned long pid = *(unsigned long *)data;
@@ -148,6 +134,7 @@ int DoGetProps(Tcl_Interp *interp, long winId) {
             Tcl_NewStringObj("pid", -1), Tcl_NewIntObj(0));
     }
 
+    /* WM_COMMAND */
     int argc = 0;
     char **argv = NULL;
     if (XGetCommand(dpy, win, &argv, &argc) && argc > 0) {
