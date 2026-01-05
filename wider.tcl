@@ -108,186 +108,124 @@ wm::load_slots
 set monitoring 1
 set monitor_interval 500  ;# ms
 set swap_threshold 150    ;# pixels - distance to trigger swap
-set snapback_interval 2000  ;# ms - how often to snap back
-set window_positions {}   ;# id -> {x y slot last_moved}
-set last_swap_time 0      ;# time of last swap (ms) - skip checks briefly after swap
 
-# Track window positions for managed windows
-# Uses fast windows_quick for position updates (no xprop calls)
-# Ensures one window per slot - never assigns same slot to multiple windows
-proc update_positions {} {
-    global window_positions
-    set now [clock milliseconds]
-    set new_positions {}
-    set assigned_slots {}  ;# Track which slots are taken
+# Stateless slot assignment and snap
+# Each cycle: assign windows to slots by proximity, snap non-active windows
+# Swap detection: if window is dragged near an occupied slot, swap them
+proc assign_and_snap_slots {} {
+    global status swap_threshold
 
-    foreach win [wm::windows_quick] {
+    # Get all windows and active window
+    set windows [wm::windows]
+    set active_id [TkX::active_window]
+
+    # Build role -> slots mapping
+    set slots_by_role {}
+    dict for {name cfg} $wm::slots {
+        if {![dict exists $cfg role]} continue
+        dict lappend slots_by_role [dict get $cfg role] $name
+    }
+
+    # First pass: find windows that are exactly in their slot
+    # and windows that need assignment
+    set slot_occupant {}  ;# slot_name -> window_id (for windows in slot)
+    set floating {}       ;# windows not in any slot: {id win_data}
+
+    foreach win $windows {
+        set role [dict get $win role]
+        if {$role eq ""} continue
+        if {![dict exists $slots_by_role $role]} continue
+
         set id [dict get $win id]
-        set x [dict get $win x]
-        set y [dict get $win y]
+        set wx [dict get $win x]
+        set wy [dict get $win y]
 
-        # Preserve existing slot assignment to enable swap detection
-        # Only calculate slot for new windows (requires full windows call)
-        if {[dict exists $window_positions $id]} {
-            set slot [dict get [dict get $window_positions $id] slot]
-            # Check if slot was already assigned to another window this cycle
-            if {$slot in $assigned_slots} continue
+        # Check if window is exactly in any slot of its role
+        set found_slot ""
+        foreach slot_name [dict get $slots_by_role $role] {
+            set cfg [dict get $wm::slots $slot_name]
+            if {$wx == [dict get $cfg x] && $wy == [dict get $cfg y]} {
+                set found_slot $slot_name
+                break
+            }
+        }
+
+        if {$found_slot ne ""} {
+            dict set slot_occupant $found_slot $id
         } else {
-            # New window - need to lookup slot (slower, but rare)
-            # Pass already-assigned slots to avoid duplicates
-            set slot [wm::find_slot_for_window $id $assigned_slots]
+            lappend floating [list $id $win]
         }
-        if {$slot eq ""} continue
-
-        lappend assigned_slots $slot
-
-        # Check if window moved since last check
-        set last_moved $now
-        if {[dict exists $window_positions $id]} {
-            set prev [dict get $window_positions $id]
-            set dx [expr {abs($x - [dict get $prev x])}]
-            set dy [expr {abs($y - [dict get $prev y])}]
-            if {$dx < 10 && $dy < 10} {
-                # Didn't move - keep old last_moved time
-                set last_moved [dict get $prev last_moved]
-            }
-        }
-
-        dict set new_positions $id [dict create \
-            x $x y $y \
-            w [dict get $win w] h [dict get $win h] \
-            slot $slot last_moved $last_moved]
     }
 
-    set window_positions $new_positions
-}
+    # Second pass: process floating windows
+    # Check for swap or snap to closest slot
+    foreach entry $floating {
+        lassign $entry win_id win_data
+        set role [dict get $win_data role]
 
-# Swap slot assignments for two windows after a successful swap
-proc swap_slot_assignments {slot1 slot2} {
-    global window_positions
-
-    # Find window IDs assigned to each slot
-    set id1 ""
-    set id2 ""
-    dict for {id pos} $window_positions {
-        set slot [dict get $pos slot]
-        if {$slot eq $slot1} { set id1 $id }
-        if {$slot eq $slot2} { set id2 $id }
-    }
-
-    # Swap their slot assignments
-    if {$id1 ne "" && $id2 ne ""} {
-        dict set window_positions $id1 slot $slot2
-        dict set window_positions $id2 slot $slot1
-    }
-}
-
-# Check for window movements and trigger swaps
-# Update window positions each monitor cycle
-# Swap detection is handled by snapback_idle_windows (swap-on-rest only)
-proc check_movements {} {
-    update_positions
-}
-
-# Snap back windows that haven't moved recently
-# Also checks for swap-on-rest: if window is near another slot, trigger swap
-proc snapback_idle_windows {} {
-    global window_positions status monitoring swap_threshold last_swap_time
-
-    if {!$monitoring} return
-
-    # Skip if a swap just happened (give wmctrl time to update)
-    set now [clock milliseconds]
-    if {$now - $last_swap_time < 3000} return
-    set idle_threshold 2000   ;# must be stationary for 2 seconds
-    set snap_distance 100     ;# only snap if within this distance of slot
-    set snapped 0
-
-    dict for {id pos} $window_positions {
-        set last_moved [dict get $pos last_moved]
-        set idle_time [expr {$now - $last_moved}]
-
-        # Skip if window moved recently (being dragged)
-        if {$idle_time < $idle_threshold} continue
-
-        set current_slot [dict get $pos slot]
-        if {![dict exists $wm::slots $current_slot]} continue
-
-        # Build pseudo-window dict for distance calculation
-        set win [dict create x [dict get $pos x] y [dict get $pos y] \
-                             w [dict get $pos w] h [dict get $pos h]]
-
-        # Check if window is near a DIFFERENT slot with SAME role (swap candidate)
-        set current_cfg [dict get $wm::slots $current_slot]
-        set current_role [dict get $current_cfg role]
-        set swap_target ""
-        set min_dist 999999
-        dict for {other_slot cfg} $wm::slots {
-            if {$other_slot eq $current_slot} continue
-            # Only consider slots with matching role
-            if {![dict exists $cfg role] || [dict get $cfg role] ne $current_role} continue
-            set dist [wm::slot_distance $win $other_slot]
-            if {$dist < $swap_threshold && $dist < $min_dist} {
-                set min_dist $dist
-                set swap_target $other_slot
+        # Find closest slot of matching role
+        set best_slot ""
+        set best_dist 999999
+        foreach slot_name [dict get $slots_by_role $role] {
+            set dist [wm::slot_distance $win_data $slot_name]
+            if {$dist < $best_dist} {
+                set best_dist $dist
+                set best_slot $slot_name
             }
         }
 
-        if {$swap_target ne ""} {
-            # Find window IDs from window_positions (not proximity)
-            set other_id ""
-            dict for {wid wpos} $window_positions {
-                if {[dict get $wpos slot] eq $swap_target} {
-                    set other_id $wid
-                    break
-                }
-            }
-            if {$other_id eq ""} continue
+        if {$best_slot eq ""} continue
 
-            # Trigger swap instead of snapback
-            set status "Swapping $current_slot <-> $swap_target"
-            if {[wm::swap_slots $current_slot $swap_target $id $other_id]} {
-                # Swap slot assignments in window_positions
-                swap_slot_assignments $current_slot $swap_target
-                set last_swap_time [clock milliseconds]
-            }
-            update_positions
-            return  ;# Process one swap per cycle
-        }
-
-        # No swap - check if should snap back
-        set cfg [dict get $wm::slots $current_slot]
+        set cfg [dict get $wm::slots $best_slot]
         set slot_x [dict get $cfg x]
         set slot_y [dict get $cfg y]
         set slot_w [dict get $cfg w]
         set slot_h [dict get $cfg h]
-        set dx [expr {abs([dict get $pos x] - $slot_x)}]
-        set dy [expr {abs([dict get $pos y] - $slot_y)}]
-        set displacement [expr {sqrt($dx*$dx + $dy*$dy)}]
 
-        # Only snap back if window is close to slot but not exactly on it
-        # If window is far away, user intentionally moved it - don't snap
-        if {$displacement > 20 && $displacement < $snap_distance} {
-            # Move this specific window (by ID) to its slot position
-            wm::move $id $slot_x $slot_y $slot_w $slot_h
-            incr snapped
+        # Check if this slot is occupied
+        if {[dict exists $slot_occupant $best_slot]} {
+            # Slot is occupied - check if we're close enough for swap
+            if {$best_dist <= $swap_threshold} {
+                set occupant_id [dict get $slot_occupant $best_slot]
+
+                # Find empty slot for the displaced window
+                set empty_slot ""
+                foreach other_slot [dict get $slots_by_role $role] {
+                    if {![dict exists $slot_occupant $other_slot]} {
+                        set empty_slot $other_slot
+                        break
+                    }
+                }
+
+                if {$empty_slot ne ""} {
+                    # Perform swap
+                    set empty_cfg [dict get $wm::slots $empty_slot]
+
+                    # Move occupant to empty slot (if not active)
+                    if {$occupant_id ne $active_id} {
+                        wm::move $occupant_id 0 [dict get $empty_cfg x] [dict get $empty_cfg y] \
+                                 [dict get $empty_cfg w] [dict get $empty_cfg h]
+                    }
+                    dict set slot_occupant $empty_slot $occupant_id
+
+                    # Move floating window to this slot (if not active)
+                    if {$win_id ne $active_id} {
+                        wm::move $win_id 0 $slot_x $slot_y $slot_w $slot_h
+                    }
+                    dict set slot_occupant $best_slot $win_id
+
+                    set status "Swapped windows"
+                }
+            }
+            # else: too far from occupied slot, do nothing (don't fight user)
+        } else {
+            # Slot is empty - snap to it (if not active)
+            if {$win_id ne $active_id} {
+                wm::move $win_id 0 $slot_x $slot_y $slot_w $slot_h
+            }
+            dict set slot_occupant $best_slot $win_id
         }
     }
-
-    if {$snapped > 0} {
-        set status "Snapped $snapped window(s) to slots"
-        update_positions
-    }
-}
-
-# Snapback loop (runs every 5 seconds)
-proc snapback_loop {} {
-    global monitoring snapback_interval
-
-    if {$monitoring} {
-        catch {snapback_idle_windows}
-    }
-    after $snapback_interval snapback_loop
 }
 
 # Monitor loop
@@ -296,7 +234,7 @@ proc monitor_loop {} {
 
     if {!$monitoring} return
 
-    catch {check_movements}
+    catch {assign_and_snap_slots}
     after $monitor_interval monitor_loop
 }
 
@@ -307,7 +245,7 @@ proc toggle_monitoring {} {
     update_monitor_button
     if {$monitoring} {
         set status "Monitoring ON"
-        after idle {update_positions; monitor_loop}
+        after idle monitor_loop
     } else {
         set status "Monitoring OFF"
     }
@@ -693,7 +631,6 @@ proc do_arrange {} {
     try {
         set count [wm::arrange_all]
         set status "Arranged $count windows"
-        update_positions
         refresh_window_list
     } on error {msg} {
         set status "Error: $msg"
@@ -854,14 +791,8 @@ after idle {
     # Load window list
     refresh_window_list
 
-    # Start monitoring
-    after 200 {
-        update_positions
-        monitor_loop
-    }
-
-    # Start snapback loop (every 2 seconds)
-    after 2000 snapback_loop
+    # Start monitoring loop (stateless - runs every 500ms)
+    after 200 monitor_loop
 
     # Start focus highlight loop
     after 300 focus_highlight_loop
