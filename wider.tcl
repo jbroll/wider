@@ -114,10 +114,12 @@ set last_swap_time 0      ;# time of last swap (ms) - skip checks briefly after 
 
 # Track window positions for managed windows
 # Uses fast windows_quick for position updates (no xprop calls)
+# Ensures one window per slot - never assigns same slot to multiple windows
 proc update_positions {} {
     global window_positions
     set now [clock milliseconds]
     set new_positions {}
+    set assigned_slots {}  ;# Track which slots are taken
 
     foreach win [wm::windows_quick] {
         set id [dict get $win id]
@@ -128,11 +130,16 @@ proc update_positions {} {
         # Only calculate slot for new windows (requires full windows call)
         if {[dict exists $window_positions $id]} {
             set slot [dict get [dict get $window_positions $id] slot]
+            # Check if slot was already assigned to another window this cycle
+            if {$slot in $assigned_slots} continue
         } else {
             # New window - need to lookup slot (slower, but rare)
-            set slot [wm::find_slot_for_window $id]
+            # Pass already-assigned slots to avoid duplicates
+            set slot [wm::find_slot_for_window $id $assigned_slots]
         }
         if {$slot eq ""} continue
+
+        lappend assigned_slots $slot
 
         # Check if window moved since last check
         set last_moved $now
@@ -176,65 +183,9 @@ proc swap_slot_assignments {slot1 slot2} {
 }
 
 # Check for window movements and trigger swaps
+# Update window positions each monitor cycle
+# Swap detection is handled by snapback_idle_windows (swap-on-rest only)
 proc check_movements {} {
-    global window_positions swap_threshold status last_swap_time
-    variable wm::slots
-
-    # Skip if a swap just happened
-    if {[clock milliseconds] - $last_swap_time < 3000} return
-
-    set current_wins [wm::windows]
-
-    foreach win $current_wins {
-        set id [dict get $win id]
-        set slot [wm::find_slot_for_window $id]
-        if {$slot eq ""} continue
-
-        # Skip if we don't have previous position
-        if {![dict exists $window_positions $id]} continue
-
-        set prev [dict get $window_positions $id]
-        set prev_slot [dict get $prev slot]
-
-        # Check if window moved significantly
-        set dx [expr {abs([dict get $win x] - [dict get $prev x])}]
-        set dy [expr {abs([dict get $win y] - [dict get $prev y])}]
-
-        if {$dx < 20 && $dy < 20} continue  ;# No significant movement
-
-        # Window moved - check if it's near another slot with same role
-        set prev_cfg [dict get $wm::slots $prev_slot]
-        set prev_role [dict get $prev_cfg role]
-        dict for {other_slot cfg} $wm::slots {
-            if {$other_slot eq $prev_slot} continue
-            # Only consider slots with matching role
-            if {![dict exists $cfg role] || [dict get $cfg role] ne $prev_role} continue
-
-            set dist [wm::slot_distance $win $other_slot]
-            if {$dist < $swap_threshold} {
-                # Find other window ID from window_positions
-                set other_id ""
-                dict for {wid wpos} $window_positions {
-                    if {[dict get $wpos slot] eq $other_slot} {
-                        set other_id $wid
-                        break
-                    }
-                }
-                if {$other_id eq ""} continue
-
-                # Trigger swap!
-                set status "Swapping $prev_slot <-> $other_slot"
-                if {[wm::swap_slots $prev_slot $other_slot $id $other_id]} {
-                    swap_slot_assignments $prev_slot $other_slot
-                    set last_swap_time [clock milliseconds]
-                }
-                update_positions
-                return
-            }
-        }
-    }
-
-    # Update positions for next iteration
     update_positions
 }
 
@@ -242,7 +193,6 @@ proc check_movements {} {
 # Also checks for swap-on-rest: if window is near another slot, trigger swap
 proc snapback_idle_windows {} {
     global window_positions status monitoring swap_threshold last_swap_time
-    variable wm::slots
 
     if {!$monitoring} return
 
@@ -391,15 +341,9 @@ set row_widgets {}
 
 # ========== Window List Functions ==========
 
-# Get currently focused window ID
+# Get currently focused window ID using TkX (no exec)
 proc get_focused_window {} {
-    if {[catch {exec xprop -root _NET_ACTIVE_WINDOW} result]} {
-        return ""
-    }
-    if {[regexp {window id # (0x[0-9a-fA-F]+)} $result -> id]} {
-        return $id
-    }
-    return ""
+    return [TkX::active_window]
 }
 
 # Normalize hex window ID (strip leading zeros after 0x)

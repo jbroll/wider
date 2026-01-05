@@ -671,6 +671,7 @@ critcl::ccode {
 
         /* Get _NET_CLIENT_LIST for managed windows */
         Atom clientList = XInternAtom(dpy, "_NET_CLIENT_LIST", False);
+        Atom netWmDesktop = XInternAtom(dpy, "_NET_WM_DESKTOP", False);
         Atom actualType;
         int actualFormat;
         unsigned long nitems, bytesAfter;
@@ -703,6 +704,18 @@ critcl::ccode {
             int absX, absY;
             XTranslateCoordinates(dpy, win, root, 0, 0, &absX, &absY, &child);
 
+            /* Get _NET_WM_DESKTOP */
+            long desktop = 0;
+            unsigned char *desktopData = NULL;
+            unsigned long desktopItems;
+            if (XGetWindowProperty(dpy, win, netWmDesktop, 0, 1, False,
+                                   XA_CARDINAL, &actualType, &actualFormat,
+                                   &desktopItems, &bytesAfter, &desktopData) == Success
+                && desktopData && desktopItems > 0) {
+                desktop = *(long *)desktopData;
+                XFree(desktopData);
+            }
+
             /* Build dict for this window */
             Tcl_Obj *winDict = Tcl_NewDictObj();
             Tcl_DictObjPut(interp, winDict,
@@ -718,6 +731,29 @@ critcl::ccode {
                 Tcl_NewStringObj("h", -1), Tcl_NewIntObj(attr.height));
             Tcl_DictObjPut(interp, winDict,
                 Tcl_NewStringObj("class", -1), Tcl_NewStringObj(className, -1));
+            Tcl_DictObjPut(interp, winDict,
+                Tcl_NewStringObj("desktop", -1), Tcl_NewLongObj(desktop));
+
+            /* Get window title (_NET_WM_NAME or WM_NAME) */
+            char *title = NULL;
+            Atom netWmName = XInternAtom(dpy, "_NET_WM_NAME", False);
+            Atom utf8String = XInternAtom(dpy, "UTF8_STRING", False);
+            unsigned char *titleData = NULL;
+            unsigned long titleItems;
+            if (XGetWindowProperty(dpy, win, netWmName, 0, 256, False,
+                                   utf8String, &actualType, &actualFormat,
+                                   &titleItems, &bytesAfter, &titleData) == Success
+                && titleData && titleItems > 0) {
+                title = (char *)titleData;
+            } else {
+                /* Fallback to WM_NAME */
+                XFetchName(dpy, win, &title);
+            }
+            Tcl_DictObjPut(interp, winDict,
+                Tcl_NewStringObj("title", -1),
+                Tcl_NewStringObj(title ? title : "", -1));
+            if (titleData) XFree(titleData);
+            else if (title) XFree(title);
 
             Tcl_ListObjAppendElement(interp, resultList, winDict);
 
@@ -795,6 +831,204 @@ critcl::ccode {
         }
 
         Tcl_SetObjResult(interp, result);
+        return TCL_OK;
+    }
+
+    /* Move and optionally resize an X11 window.
+     * Coords are absolute screen coords; we handle the frame offset internally. */
+    static int DoMoveWindow(Tcl_Interp *interp, long winId, int x, int y, int w, int h) {
+        Tk_Window tkwin = Tk_MainWindow(interp);
+        if (!tkwin) {
+            Tcl_SetResult(interp, "no Tk main window", TCL_STATIC);
+            return TCL_ERROR;
+        }
+        Display *dpy = Tk_Display(tkwin);
+        Window win = (Window)winId;
+        Window root = DefaultRootWindow(dpy);
+
+        /* Walk up to find frame and compute offset */
+        int offX = 0, offY = 0;
+        Window parent, *children, current = win;
+        unsigned int nchildren;
+        XWindowAttributes attr;
+
+        while (1) {
+            if (!XQueryTree(dpy, current, &root, &parent, &children, &nchildren))
+                break;
+            if (children) XFree(children);
+            if (parent == root) break;
+
+            if (XGetWindowAttributes(dpy, current, &attr)) {
+                offX += attr.x;
+                offY += attr.y;
+            }
+            current = parent;
+        }
+
+        /* Move the frame window (current is now the frame) */
+        int frameX = x - offX;
+        int frameY = y - offY;
+
+        if (w > 0 && h > 0) {
+            XMoveResizeWindow(dpy, current, frameX, frameY, w, h);
+        } else {
+            XMoveWindow(dpy, current, frameX, frameY);
+        }
+        XFlush(dpy);
+
+        return TCL_OK;
+    }
+
+    /* Get frame offset for any X11 window (by ID).
+     * Returns {offX offY} - the offset from window coords to frame coords.
+     * This is what wmctrl needs subtracted from absolute coords. */
+    static int DoWindowOffset(Tcl_Interp *interp, long winId) {
+        Tk_Window tkwin = Tk_MainWindow(interp);
+        if (!tkwin) {
+            Tcl_SetResult(interp, "no Tk main window", TCL_STATIC);
+            return TCL_ERROR;
+        }
+        Display *dpy = Tk_Display(tkwin);
+        Window win = (Window)winId;
+        Window root = DefaultRootWindow(dpy);
+
+        int offX = 0, offY = 0;
+        Window parent, *children;
+        unsigned int nchildren;
+        XWindowAttributes attr;
+
+        /* Walk up to frame, accumulating offset */
+        while (1) {
+            if (!XQueryTree(dpy, win, &root, &parent, &children, &nchildren)) {
+                break;
+            }
+            if (children) XFree(children);
+            if (parent == root) break;  /* win is the frame */
+
+            if (XGetWindowAttributes(dpy, win, &attr)) {
+                offX += attr.x;
+                offY += attr.y;
+            }
+            win = parent;
+        }
+
+        Tcl_Obj *result = Tcl_NewListObj(0, NULL);
+        Tcl_ListObjAppendElement(interp, result, Tcl_NewIntObj(offX));
+        Tcl_ListObjAppendElement(interp, result, Tcl_NewIntObj(offY));
+        Tcl_SetObjResult(interp, result);
+        return TCL_OK;
+    }
+
+    /* Get the currently focused/active window */
+    static int DoGetActiveWindow(Tcl_Interp *interp) {
+        Tk_Window tkwin = Tk_MainWindow(interp);
+        if (!tkwin) {
+            Tcl_SetResult(interp, "no Tk main window", TCL_STATIC);
+            return TCL_ERROR;
+        }
+        Display *dpy = Tk_Display(tkwin);
+        Window root = DefaultRootWindow(dpy);
+
+        Atom activeAtom = XInternAtom(dpy, "_NET_ACTIVE_WINDOW", False);
+        Atom actualType;
+        int actualFormat;
+        unsigned long nitems, bytesAfter;
+        unsigned char *data = NULL;
+
+        Window active = None;
+        if (XGetWindowProperty(dpy, root, activeAtom, 0, 1, False,
+                               XA_WINDOW, &actualType, &actualFormat,
+                               &nitems, &bytesAfter, &data) == Success
+            && data && nitems > 0) {
+            active = *(Window *)data;
+            XFree(data);
+        }
+
+        Tcl_SetObjResult(interp, Tcl_ObjPrintf("0x%lx", (unsigned long)active));
+        return TCL_OK;
+    }
+
+    /* Set window to desktop */
+    static int DoSetDesktop(Tcl_Interp *interp, long winId, int desktop) {
+        Tk_Window tkwin = Tk_MainWindow(interp);
+        if (!tkwin) {
+            Tcl_SetResult(interp, "no Tk main window", TCL_STATIC);
+            return TCL_ERROR;
+        }
+        Display *dpy = Tk_Display(tkwin);
+        Window root = DefaultRootWindow(dpy);
+        Window win = (Window)winId;
+
+        Atom wmDesktop = XInternAtom(dpy, "_NET_WM_DESKTOP", False);
+
+        XEvent ev;
+        memset(&ev, 0, sizeof(ev));
+        ev.xclient.type = ClientMessage;
+        ev.xclient.window = win;
+        ev.xclient.message_type = wmDesktop;
+        ev.xclient.format = 32;
+        ev.xclient.data.l[0] = desktop;
+        ev.xclient.data.l[1] = 2;  /* source indication: pager */
+
+        XSendEvent(dpy, root, False,
+                   SubstructureNotifyMask | SubstructureRedirectMask, &ev);
+        XFlush(dpy);
+        return TCL_OK;
+    }
+
+    /* Change window state (add/remove/toggle) */
+    static int DoWindowState(Tcl_Interp *interp, long winId, const char *action,
+                             const char *prop1, const char *prop2) {
+        Tk_Window tkwin = Tk_MainWindow(interp);
+        if (!tkwin) {
+            Tcl_SetResult(interp, "no Tk main window", TCL_STATIC);
+            return TCL_ERROR;
+        }
+        Display *dpy = Tk_Display(tkwin);
+        Window root = DefaultRootWindow(dpy);
+        Window win = (Window)winId;
+
+        /* Action: 0=remove, 1=add, 2=toggle */
+        int act = 0;
+        if (strcmp(action, "add") == 0) act = 1;
+        else if (strcmp(action, "toggle") == 0) act = 2;
+
+        Atom wmState = XInternAtom(dpy, "_NET_WM_STATE", False);
+        Atom atom1 = prop1 && *prop1 ? XInternAtom(dpy, prop1, False) : None;
+        Atom atom2 = prop2 && *prop2 ? XInternAtom(dpy, prop2, False) : None;
+
+        XEvent ev;
+        memset(&ev, 0, sizeof(ev));
+        ev.xclient.type = ClientMessage;
+        ev.xclient.window = win;
+        ev.xclient.message_type = wmState;
+        ev.xclient.format = 32;
+        ev.xclient.data.l[0] = act;
+        ev.xclient.data.l[1] = atom1;
+        ev.xclient.data.l[2] = atom2;
+        ev.xclient.data.l[3] = 2;  /* source: pager */
+
+        XSendEvent(dpy, root, False,
+                   SubstructureNotifyMask | SubstructureRedirectMask, &ev);
+        XFlush(dpy);
+        return TCL_OK;
+    }
+
+    /* Set a string property on a window */
+    static int DoSetProperty(Tcl_Interp *interp, long winId,
+                             const char *propName, const char *value) {
+        Tk_Window tkwin = Tk_MainWindow(interp);
+        if (!tkwin) {
+            Tcl_SetResult(interp, "no Tk main window", TCL_STATIC);
+            return TCL_ERROR;
+        }
+        Display *dpy = Tk_Display(tkwin);
+        Window win = (Window)winId;
+
+        Atom prop = XInternAtom(dpy, propName, False);
+        XChangeProperty(dpy, win, prop, XA_STRING, 8, PropModeReplace,
+                        (unsigned char *)value, strlen(value));
+        XFlush(dpy);
         return TCL_OK;
     }
 
@@ -1316,6 +1550,64 @@ critcl::cproc TkX::get_props {
     long window_id
 } ok {
     return DoGetProps(interp, window_id);
+}
+
+# Window offset - get {offX offY} for wmctrl coordinate conversion (fast, no exec)
+critcl::cproc TkX::window_offset {
+    Tcl_Interp* interp
+    long window_id
+} ok {
+    return DoWindowOffset(interp, window_id);
+}
+
+# Move/resize window - absolute screen coords, handles frame offset internally
+# w,h of -1 means move only (no resize)
+critcl::cproc TkX::move_window {
+    Tcl_Interp* interp
+    long window_id
+    int x
+    int y
+    int w
+    int h
+} ok {
+    return DoMoveWindow(interp, window_id, x, y, w, h);
+}
+
+# Get the currently active/focused window ID
+critcl::cproc TkX::active_window {
+    Tcl_Interp* interp
+} ok {
+    return DoGetActiveWindow(interp);
+}
+
+# Set window to a desktop
+critcl::cproc TkX::set_desktop {
+    Tcl_Interp* interp
+    long window_id
+    int desktop
+} ok {
+    return DoSetDesktop(interp, window_id, desktop);
+}
+
+# Change window state (add/remove/toggle properties like maximized, above, etc)
+critcl::cproc TkX::window_state {
+    Tcl_Interp* interp
+    long window_id
+    char* action
+    char* prop1
+    char* prop2
+} ok {
+    return DoWindowState(interp, window_id, action, prop1, prop2);
+}
+
+# Set a string property on a window
+critcl::cproc TkX::set_property {
+    Tcl_Interp* interp
+    long window_id
+    char* property
+    char* value
+} ok {
+    return DoSetProperty(interp, window_id, property, value);
 }
 
 package provide TkX 1.0

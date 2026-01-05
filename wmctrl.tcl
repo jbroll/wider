@@ -78,9 +78,9 @@ namespace eval wm {
         return ""
     }
 
-    # Set WM_WINDOW_ROLE property
+    # Set WM_WINDOW_ROLE property using TkX (no exec)
     proc set_role {id role} {
-        exec xprop -id $id -f WM_WINDOW_ROLE 8s -set WM_WINDOW_ROLE $role
+        TkX::set_property [scan $id %x] WM_WINDOW_ROLE $role
     }
 
     # Parse X11 geometry string (WxH+X+Y or WxH-X-Y)
@@ -181,7 +181,7 @@ namespace eval wm {
         return $result
     }
 
-    # Change window state
+    # Change window state using TkX (no exec)
     # action: add, remove, or toggle
     # props: one or more of: modal, sticky, maximized_vert, maximized_horz,
     #        shaded, skip_taskbar, skip_pager, hidden, fullscreen, above, below
@@ -189,121 +189,41 @@ namespace eval wm {
         if {[llength $args] == 0} {
             error "usage: wm::state id add|remove|toggle prop ?prop?"
         }
-        exec wmctrl -i -r $id -b $action,[join $args ,]
+        set winId [scan $id %x]
+        set prop1 "_NET_WM_STATE_[string toupper [lindex $args 0]]"
+        set prop2 ""
+        if {[llength $args] > 1} {
+            set prop2 "_NET_WM_STATE_[string toupper [lindex $args 1]]"
+        }
+        TkX::window_state $winId $action $prop1 $prop2
     }
 
-    # Determine window type and move offset
-    # Returns: {type off_x off_y}
-    # Types: gtk (needs /2), csd (relative offset), ssd (relative + frame_top)
-    proc get_window_type {id} {
-        # Check if parent is root (GTK window)
-        set tree [exec xwininfo -id $id -tree]
-        regexp {Parent window id: (0x[0-9a-f]+)} $tree -> parent
-        set root_info [exec xwininfo -root]
-        regexp {Window id: (0x[0-9a-f]+)} $root_info -> root_id
-
-        if {$parent eq $root_id} {
-            return {gtk 0 0}
-        }
-
-        # Get relative offset from xwininfo
-        set xwin [exec xwininfo -id $id]
-        set rel_x 0
-        set rel_y 0
-        regexp {Relative upper-left X:\s*(\d+)} $xwin -> rel_x
-        regexp {Relative upper-left Y:\s*(\d+)} $xwin -> rel_y
-
-        # Check for CSD (_MOTIF_WM_HINTS present)
-        set has_csd 0
-        try {
-            set motif [exec xprop -id $id _MOTIF_WM_HINTS]
-            if {![string match "*not found*" $motif]} {
-                set has_csd 1
-            }
-        } on error {} {}
-
-        if {$has_csd} {
-            return [list csd $rel_x $rel_y]
-        }
-
-        # SSD - add frame extents from _NET_FRAME_EXTENTS
-        set frame_left 0
-        set frame_top 0
-        try {
-            set extents [exec xprop -id $id _NET_FRAME_EXTENTS]
-            regexp {(\d+),\s*(\d+),\s*(\d+),\s*(\d+)} $extents -> l r t b
-            set frame_left $l
-            set frame_top $t
-        } on error {} {}
-
-        return [list ssd [expr {$rel_x + $frame_left}] [expr {$rel_y + $frame_top}]]
-    }
-
-    # Move and optionally resize a window
-    # Uses wmctrl with offset compensation based on window type
+    # Move and optionally resize a window using TkX (no exec)
     # Forms:
     #   wm::move id x y                 - move only
     #   wm::move id desktop x y         - move to desktop and position
     #   wm::move id x y w h             - move and resize
     #   wm::move id desktop x y w h     - move to desktop, position and resize
     proc move {id args} {
-        lassign [get_window_type $id] type off_x off_y
-
-        # Calculate wmctrl coordinates
+        set winId [scan $id %x]
         switch [llength $args] {
             2 {
                 lassign $args x y
-                if {$type eq "gtk"} {
-                    set wx [expr {$x / 2}]
-                    set wy [expr {$y / 2}]
-                } else {
-                    set wx [expr {$x - $off_x}]
-                    set wy [expr {$y - $off_y}]
-                }
-                exec wmctrl -i -r $id -e 0,$wx,$wy,-1,-1
+                TkX::move_window $winId $x $y -1 -1
             }
             3 {
                 lassign $args desktop x y
-                if {$type eq "gtk"} {
-                    set wx [expr {$x / 2}]
-                    set wy [expr {$y / 2}]
-                } else {
-                    set wx [expr {$x - $off_x}]
-                    set wy [expr {$y - $off_y}]
-                }
-                exec wmctrl -i -r $id -t $desktop
-                exec wmctrl -i -r $id -e 0,$wx,$wy,-1,-1
+                TkX::set_desktop $winId $desktop
+                TkX::move_window $winId $x $y -1 -1
             }
             4 {
                 lassign $args x y w h
-                if {$type eq "gtk"} {
-                    set wx [expr {$x / 2}]
-                    set wy [expr {$y / 2}]
-                    set ww [expr {$w / 2}]
-                    set wh [expr {$h / 2}]
-                } else {
-                    set wx [expr {$x - $off_x}]
-                    set wy [expr {$y - $off_y}]
-                    set ww $w
-                    set wh $h
-                }
-                exec wmctrl -i -r $id -e 0,$wx,$wy,$ww,$wh
+                TkX::move_window $winId $x $y $w $h
             }
             5 {
                 lassign $args desktop x y w h
-                if {$type eq "gtk"} {
-                    set wx [expr {$x / 2}]
-                    set wy [expr {$y / 2}]
-                    set ww [expr {$w / 2}]
-                    set wh [expr {$h / 2}]
-                } else {
-                    set wx [expr {$x - $off_x}]
-                    set wy [expr {$y - $off_y}]
-                    set ww $w
-                    set wh $h
-                }
-                exec wmctrl -i -r $id -t $desktop
-                exec wmctrl -i -r $id -e 0,$wx,$wy,$ww,$wh
+                TkX::set_desktop $winId $desktop
+                TkX::move_window $winId $x $y $w $h
             }
             default {
                 error "usage: wm::move id ?desktop? x y ?w h?"
@@ -580,8 +500,9 @@ namespace eval wm {
 
     # Find which slot a window belongs to (by role or class)
     # When multiple slots match, picks the one closest to window position
+    # exclude: list of slot names already assigned (one window per slot)
     # Returns slot name or empty string
-    proc find_slot_for_window {id} {
+    proc find_slot_for_window {id {exclude {}}} {
         variable slots
 
         # Get window info including position for proximity matching
@@ -598,6 +519,7 @@ namespace eval wm {
         if {$win_role ne ""} {
             set role_matches {}
             dict for {name config} $slots {
+                if {$name in $exclude} continue
                 if {[dict exists $config role] && [dict get $config role] eq $win_role} {
                     lappend role_matches $name
                 }
@@ -623,6 +545,7 @@ namespace eval wm {
         if {$win_class ne ""} {
             set class_matches {}
             dict for {name config} $slots {
+                if {$name in $exclude} continue
                 if {[dict exists $config class] && [dict get $config class] eq $win_class} {
                     lappend class_matches $name
                 }
