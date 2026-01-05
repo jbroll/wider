@@ -35,8 +35,10 @@ int DoListWindows(Tcl_Interp *interp) {
 
         XClassHint classHint = {0};
         char *className = "";
+        char *instanceName = "";
         if (XGetClassHint(dpy, win, &classHint)) {
             className = classHint.res_class ? classHint.res_class : "";
+            instanceName = classHint.res_name ? classHint.res_name : "";
         }
 
         Window child;
@@ -68,6 +70,8 @@ int DoListWindows(Tcl_Interp *interp) {
             Tcl_NewStringObj("h", -1), Tcl_NewIntObj(attr.height));
         Tcl_DictObjPut(interp, winDict,
             Tcl_NewStringObj("class", -1), Tcl_NewStringObj(className, -1));
+        Tcl_DictObjPut(interp, winDict,
+            Tcl_NewStringObj("instance", -1), Tcl_NewStringObj(instanceName, -1));
         Tcl_DictObjPut(interp, winDict,
             Tcl_NewStringObj("desktop", -1), Tcl_NewLongObj(desktop));
 
