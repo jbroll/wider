@@ -72,12 +72,10 @@ Windows with the same role but different slot positions are **swappable** - drag
   - **Monitor**: Toggle position monitoring ON/OFF
 
   **Monitor Mode (when ON):**
-  - Polls window positions every 500ms via `check_movements`
-  - Runs snapback check every 2000ms via `snapback_idle_windows`
-  - **Swap detection**: When a window is dragged near another slot with the *same role*, the two windows swap positions. Threshold: 150px from slot center.
-  - **Snapback**: Windows idle for 2+ seconds that are 20-100px from their assigned slot are snapped back to exact position. Windows moved further away are left alone (user intent).
-  - **Cooldown**: 3-second pause after any swap to prevent oscillation
-  - Swap only works between slots with matching roles (e.g., two "swappable-term" slots)
+  - Polls window positions every 500ms via `assign_and_snap_slots`
+  - Windows within 150px of a matching slot snap into position
+  - The active window (being dragged) is not moved
+  - **Swap detection**: If two windows with the same role are near the same slot, they swap positions
 
 - **wmctrl.tcl**: Core library in the `wm::` namespace:
 
