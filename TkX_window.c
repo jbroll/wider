@@ -56,6 +56,7 @@ int DoMoveWindow(Tcl_Interp *interp, long winId, int x, int y, int w, int h) {
     Window win = (Window)winId;
     Window root = DefaultRootWindow(dpy);
 
+    /* Walk up window hierarchy to find frame and compute offset */
     int offX = 0, offY = 0;
     Window parent, *children, current = win;
     unsigned int nchildren;
@@ -74,8 +75,28 @@ int DoMoveWindow(Tcl_Interp *interp, long winId, int x, int y, int w, int h) {
         current = parent;
     }
 
-    int frameX = x - offX;
-    int frameY = y - offY;
+    /* Get _NET_FRAME_EXTENTS from client window (WM sets it there, not on frame) */
+    Atom frameExtents = XInternAtom(dpy, "_NET_FRAME_EXTENTS", False);
+    Atom actualType;
+    int actualFormat;
+    unsigned long nitems, bytesAfter;
+    unsigned char *data = NULL;
+    int frameLeft = 0, frameTop = 0;
+
+    if (XGetWindowProperty(dpy, win, frameExtents, 0, 4, False,
+                           XA_CARDINAL, &actualType, &actualFormat,
+                           &nitems, &bytesAfter, &data) == Success
+        && data && nitems >= 4) {
+        unsigned long *extents = (unsigned long *)data;
+        frameLeft = extents[0];  /* left */
+        frameTop = extents[2];   /* top */
+        XFree(data);
+    }
+
+    /* Subtract offset twice: once for client-to-frame offset, once more
+     * to compensate for xfwm4 adding frame extents to move coordinates */
+    int frameX = x - offX - frameLeft;
+    int frameY = y - offY - frameTop;
 
     if (w > 0 && h > 0) {
         XMoveResizeWindow(dpy, current, frameX, frameY, w, h);
