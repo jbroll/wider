@@ -2,7 +2,7 @@
 Type=Application
 Name=Wider
 Comment=Window layout save/restore utility
-Exec=wish9.1 /home/john/src/wider/wider.tcl
+Exec=/home/john/bin/wider
 Icon=/home/john/src/wider/wider.svg
 Terminal=false
 Categories=Utility;

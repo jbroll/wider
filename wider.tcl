@@ -1,4 +1,4 @@
-#!/usr/bin/env wish
+#!/home/john/bin/wish9.1
 # wider.tcl - Window layout save/restore utility
 #
 # Usage:
@@ -11,7 +11,11 @@
 #   wider.tcl --autostart  - generate autostart .desktop files from slots
 
 # Resolve symlinks to find actual script location
-set script_dir [file dirname [file normalize [info script]]]
+set script [file normalize [info script]]
+while {[file type $script] eq "link"} {
+    set script [file join [file dirname $script] [file readlink $script]]
+}
+set script_dir [file dirname [file normalize $script]]
 lappend auto_path [file join $script_dir lib]
 source [file join $script_dir wmctrl.tcl]
 
