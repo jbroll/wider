@@ -261,7 +261,6 @@ proc update_monitor_button {} {
 
 wm title . "Wider - Slot Editor"
 wm resizable . 1 1
-wm minsize . 600 300
 tk appname wider
 set status "Ready"
 
@@ -777,7 +776,47 @@ grid .f -sticky nsew
 grid columnconfigure . 0 -weight 1
 grid rowconfigure . 0 -weight 1
 
-# Header row
+# Collapsible card state
+set card_expanded 0
+
+set saved_height 400
+
+proc toggle_card {} {
+    global card_expanded saved_height
+    set card_expanded [expr {!$card_expanded}]
+    set w [winfo width .]
+    if {$card_expanded} {
+        grid .card -in .f -row 1 -column 0 -sticky nsew
+        .btns.toggle configure -text "▼"
+        wm minsize . 600 300
+        wm geometry . ${w}x${saved_height}
+    } else {
+        set saved_height [winfo height .]
+        grid forget .card
+        .btns.toggle configure -text "▶"
+        update idletasks
+        wm minsize . 600 0
+        wm geometry . ${w}x[winfo reqheight .]
+    }
+}
+
+# Button bar (at top)
+ttk::frame .btns
+ttk::button .btns.refresh -text "Refresh" -command refresh_window_list
+ttk::button .btns.snap -text "Snap" -command do_snap
+ttk::button .btns.arrange -text "Arrange" -command do_arrange
+ttk::button .btns.launch -text "Launch" -command do_launch
+ttk::button .btns.monitor -text "Monitor: ON" -command toggle_monitoring -style Monitor.On.TButton
+ttk::label .btns.status -textvariable status -foreground gray -anchor w
+ttk::button .btns.toggle -text "▶" -command toggle_card -width 2
+pack .btns.refresh .btns.snap .btns.arrange .btns.launch .btns.monitor -side left -padx 3
+pack .btns.toggle -side right -padx 3
+pack .btns.status -side right -padx 10 -fill x -expand 1
+
+# Collapsible card for window list
+ttk::frame .card -relief groove -borderwidth 1
+
+# Header row (inside card)
 frame .hdr -background #e0e0e0
 label .hdr.cb -text "" -width 3 -background #e0e0e0
 label .hdr.role -text "Role" -width 16 -anchor w -background #e0e0e0 -font {TkDefaultFont 9 bold}
@@ -806,25 +845,16 @@ bind .grid <MouseWheel> {
 bind .grid <Button-4> {.grid yview scroll -3 units}
 bind .grid <Button-5> {.grid yview scroll 3 units}
 
-# Button bar
-ttk::frame .btns
-ttk::button .btns.refresh -text "Refresh" -command refresh_window_list
-ttk::button .btns.snap -text "Snap" -command do_snap
-ttk::button .btns.arrange -text "Arrange" -command do_arrange
-ttk::button .btns.launch -text "Launch" -command do_launch
-ttk::button .btns.monitor -text "Monitor: ON" -command toggle_monitoring -style Monitor.On.TButton
+# Layout inside card
+grid .hdr -in .card -row 0 -column 0 -columnspan 2 -sticky ew
+grid .grid -in .card -row 1 -column 0 -sticky nsew
+grid .vsb -in .card -row 1 -column 1 -sticky ns
+grid columnconfigure .card 0 -weight 1
+grid rowconfigure .card 1 -weight 1
 
-# Status bar
-ttk::label .status -textvariable status -foreground gray -anchor w
-
-# Layout
-grid .hdr -in .f -row 0 -column 0 -columnspan 2 -sticky ew
-grid .grid -in .f -row 1 -column 0 -sticky nsew
-grid .vsb -in .f -row 1 -column 1 -sticky ns
-grid .btns -in .f -row 2 -column 0 -columnspan 2 -sticky ew -pady 5
-grid .status -in .f -row 3 -column 0 -columnspan 2 -sticky ew
-
-pack .btns.refresh .btns.snap .btns.arrange .btns.launch .btns.monitor -side left -padx 3
+# Main layout (card starts collapsed)
+grid .btns -in .f -row 0 -column 0 -sticky ew -pady {0 5}
+wm minsize . 600 0
 
 grid columnconfigure .f 0 -weight 1
 grid rowconfigure .f 1 -weight 1
@@ -838,7 +868,7 @@ after idle {
 
     # Position window
     set sw [winfo screenwidth .]
-    wm geometry . 700x400+[expr {$sw - 750}]+50
+    wm geometry . 700x50+[expr {$sw - 750}]+50
 
     # Set _NET_WM_PID using TkX
     after 100 {
