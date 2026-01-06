@@ -234,6 +234,10 @@ namespace eval wm {
 
             # Merge window geometry with properties
             dict set win role [dict get $props role]
+            # Default empty role to class
+            if {[dict get $win role] eq ""} {
+                dict set win role [dict get $win class]
+            }
             dict set win pid [dict get $props pid]
 
             # Convert command list to string
