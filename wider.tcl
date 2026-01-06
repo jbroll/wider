@@ -167,7 +167,10 @@ proc assign_and_snap_slots {} {
                     if {$second_dist <= $swap_threshold} {
                         lappend assigned $second_id
                         lappend unassigned [list $first_id $first_win]
-                        wm::move $second_id 0 $x $y $w $h
+                        # Convert slot units to pixels
+                        set hints [wm::get_size_hints $second_id]
+                        lassign [wm::units_to_pixels $w $h $hints] pw ph
+                        wm::move $second_id 0 $x $y $pw $ph
                         set status "Swapped"
                         continue
                     }
@@ -176,7 +179,10 @@ proc assign_and_snap_slots {} {
             } elseif {$first_dist <= $swap_threshold} {
                 lappend assigned $first_id
                 if {$first_id ne $active_id} {
-                    wm::move $first_id 0 $x $y $w $h
+                    # Convert slot units to pixels
+                    set hints [wm::get_size_hints $first_id]
+                    lassign [wm::units_to_pixels $w $h $hints] pw ph
+                    wm::move $first_id 0 $x $y $pw $ph
                 }
             } else {
                 # No window close enough - slot is empty
@@ -208,7 +214,10 @@ proc assign_and_snap_slots {} {
             set empty_slots [lreplace $empty_slots $idx $idx]
             if {$win_id ne $active_id} {
                 dict with best_slot {
-                    wm::move $win_id 0 $x $y $w $h
+                    # Convert slot units to pixels
+                    set hints [wm::get_size_hints $win_id]
+                    lassign [wm::units_to_pixels $w $h $hints] pw ph
+                    wm::move $win_id 0 $x $y $pw $ph
                 }
             }
         }
@@ -370,9 +379,13 @@ proc refresh_window_list {} {
         set desktop [dict get $win desktop]
         set x [dict get $win x]
         set y [dict get $win y]
-        set w [dict get $win w]
-        set h [dict get $win h]
+        set pw [dict get $win w]
+        set ph [dict get $win h]
         set title [dict get $win title]
+
+        # Convert pixel dimensions to app units for display (chars for terminals)
+        set hints [wm::get_size_hints $id]
+        lassign [wm::pixels_to_units $pw $ph $hints] w h
         set geom "${w}x${h}+${x}+${y}"
 
         # Check if managed (has claimed slot)
@@ -567,10 +580,14 @@ proc on_geom_change {id} {
     set new_w [dict get $parsed w]
     set new_h [dict get $parsed h]
 
-    # Move/resize the window
-    wm::move $id $new_x $new_y $new_w $new_h
+    # Convert app units to pixels for move (user enters app units)
+    set hints [wm::get_size_hints $id]
+    lassign [wm::units_to_pixels $new_w $new_h $hints] pw ph
 
-    # Update slot if managed
+    # Move/resize the window with pixel dimensions
+    wm::move $id $new_x $new_y $pw $ph
+
+    # Update slot with app units (as entered by user)
     set role [dict get $win role]
     set old_x [dict get $win x]
     set old_y [dict get $win y]
@@ -578,7 +595,7 @@ proc on_geom_change {id} {
         save_all
     }
 
-    # Update window_data
+    # Update window_data with app units
     dict set window_data $id x $new_x
     dict set window_data $id y $new_y
     dict set window_data $id w $new_w
@@ -666,9 +683,13 @@ proc do_snap {} {
         set class [dict get $win class]
         set x [dict get $win x]
         set y [dict get $win y]
-        set w [dict get $win w]
-        set h [dict get $win h]
+        set pw [dict get $win w]
+        set ph [dict get $win h]
         set cmd [dict get $win cmdline]
+
+        # Convert pixel dimensions to app units (chars for terminals)
+        set hints [wm::get_size_hints $id]
+        lassign [wm::pixels_to_units $pw $ph $hints] w h
 
         # Find closest unclaimed slot with matching role
         set best_slot {}

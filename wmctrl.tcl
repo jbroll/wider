@@ -87,6 +87,84 @@ namespace eval wm {
         TkX::set_property [scan $id %x] WM_COMMAND $cmd
     }
 
+    # Cache of size hints per window class
+    variable size_hints_cache {}
+
+    # Get WM_NORMAL_HINTS (size hints) for a window
+    # Returns dict with: base_w base_h inc_w inc_h (or empty if not set)
+    # Also caches hints by window class for later use
+    proc get_size_hints {id} {
+        variable size_hints_cache
+        set result {}
+        try {
+            set output [exec xprop -id $id WM_NORMAL_HINTS]
+            # Parse: "program specified resize increment: 11 by 23"
+            if {[regexp {resize increment:\s*(\d+)\s+by\s+(\d+)} $output -> inc_w inc_h]} {
+                dict set result inc_w $inc_w
+                dict set result inc_h $inc_h
+            }
+            # Parse: "program specified base size: 17 by 2"
+            if {[regexp {base size:\s*(\d+)\s+by\s+(\d+)} $output -> base_w base_h]} {
+                dict set result base_w $base_w
+                dict set result base_h $base_h
+            }
+            # Cache by class if we have increments
+            if {[dict exists $result inc_w] && [dict get $result inc_w] > 1} {
+                # Get window class for caching
+                set class_output [exec xprop -id $id WM_CLASS]
+                if {[regexp {"[^"]*",\s*"([^"]*)"} $class_output -> class]} {
+                    dict set size_hints_cache $class $result
+                }
+            }
+        } on error {} {}
+        return $result
+    }
+
+    # Get cached size hints for a window class
+    proc get_class_hints {class} {
+        variable size_hints_cache
+        if {[dict exists $size_hints_cache $class]} {
+            return [dict get $size_hints_cache $class]
+        }
+        return {}
+    }
+
+    # Convert pixel dimensions to app units using size hints
+    # For apps with increment hints (terminals), returns character dimensions
+    # For other apps, returns pixels unchanged
+    proc pixels_to_units {pw ph hints} {
+        if {$hints eq "" || ![dict exists $hints inc_w]} {
+            return [list $pw $ph]
+        }
+        set inc_w [dict get $hints inc_w]
+        set inc_h [dict get $hints inc_h]
+        if {$inc_w <= 1 && $inc_h <= 1} {
+            return [list $pw $ph]
+        }
+        set base_w [expr {[dict exists $hints base_w] ? [dict get $hints base_w] : 0}]
+        set base_h [expr {[dict exists $hints base_h] ? [dict get $hints base_h] : 0}]
+        set cols [expr {($pw - $base_w) / $inc_w}]
+        set rows [expr {($ph - $base_h) / $inc_h}]
+        return [list $cols $rows]
+    }
+
+    # Convert app units to pixel dimensions using size hints
+    proc units_to_pixels {uw uh hints} {
+        if {$hints eq "" || ![dict exists $hints inc_w]} {
+            return [list $uw $uh]
+        }
+        set inc_w [dict get $hints inc_w]
+        set inc_h [dict get $hints inc_h]
+        if {$inc_w <= 1 && $inc_h <= 1} {
+            return [list $uw $uh]
+        }
+        set base_w [expr {[dict exists $hints base_w] ? [dict get $hints base_w] : 0}]
+        set base_h [expr {[dict exists $hints base_h] ? [dict get $hints base_h] : 0}]
+        set pw [expr {$base_w + ($uw * $inc_w)}]
+        set ph [expr {$base_h + ($uh * $inc_h)}]
+        return [list $pw $ph]
+    }
+
     # Parse X11 geometry string (WxH+X+Y or WxH-X-Y)
     # Returns dict with keys: w h x y
     proc parse_geometry {geom {screenw 0} {screenh 0}} {
@@ -626,17 +704,22 @@ namespace eval wm {
     }
 
     # Move window to a slot position
+    # Slot dimensions are in app units - convert to pixels using window's size hints
     proc arrange_slot {slot} {
         set win [find_window_for_slot $slot]
         if {$win eq ""} {
             return 0
         }
 
+        set id [dict get $win id]
         dict with slot {
             if {![info exists x]} {
                 return 0
             }
-            move [dict get $win id] $x $y $w $h
+            # Convert app units to pixels
+            set hints [get_size_hints $id]
+            lassign [units_to_pixels $w $h $hints] pw ph
+            move $id $x $y $pw $ph
         }
         return 1
     }
@@ -644,6 +727,7 @@ namespace eval wm {
     # Arrange all windows to their slot positions
     # Windows already at their slot position are not moved
     # Ensures one window per slot
+    # Slot dimensions are in app units - convert to pixels using window's size hints
     proc arrange_all {} {
         variable slots
         set count 0
@@ -664,15 +748,15 @@ namespace eval wm {
             if {$dist < $in_position_threshold} {
                 lappend assigned_slots $idx
                 lappend assigned_windows $id
-                # Only move if not already at exact position
-                if {$dist > 0} {
-                    dict with slot {
-                        if {[info exists x]} {
-                            move $id $x $y $w $h
-                        }
+                # Always move/resize to ensure correct size
+                dict with slot {
+                    if {[info exists x]} {
+                        set hints [get_size_hints $id]
+                        lassign [units_to_pixels $w $h $hints] pw ph
+                        move $id $x $y $pw $ph
                     }
-                    incr count
                 }
+                incr count
             }
         }
 
@@ -691,7 +775,9 @@ namespace eval wm {
 
             dict with slot {
                 if {[info exists x]} {
-                    move $id $x $y $w $h
+                    set hints [get_size_hints $id]
+                    lassign [units_to_pixels $w $h $hints] pw ph
+                    move $id $x $y $pw $ph
                 }
             }
             incr count
@@ -701,6 +787,7 @@ namespace eval wm {
 
     # Swap windows between two slots
     # Takes slot dicts and window IDs
+    # Slot dimensions are in app units - convert to pixels using each window's size hints
     proc swap_slots {slot1 slot2 id1 id2} {
         dict with slot1 {
             set x1 $x; set y1 $y; set w1 $w; set h1 $h
@@ -708,8 +795,13 @@ namespace eval wm {
         dict with slot2 {
             set x2 $x; set y2 $y; set w2 $w; set h2 $h
         }
-        move $id1 $x2 $y2 $w2 $h2
-        move $id2 $x1 $y1 $w1 $h1
+        # Convert app units to pixels for each window
+        set hints1 [get_size_hints $id1]
+        set hints2 [get_size_hints $id2]
+        lassign [units_to_pixels $w2 $h2 $hints1] pw2 ph2
+        lassign [units_to_pixels $w1 $h1 $hints2] pw1 ph1
+        move $id1 $x2 $y2 $pw2 $ph2
+        move $id2 $x1 $y1 $pw1 $ph1
         return 1
     }
 
