@@ -341,4 +341,10 @@ critcl::cproc TkX::get_props {
     return DoGetProps(interp, window_id);
 }
 
+critcl::cproc TkX::pointer_state {
+    Tcl_Interp* interp
+} ok {
+    return DoPointerState(interp);
+}
+
 package provide TkX 1.0

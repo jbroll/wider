@@ -142,5 +142,6 @@ int DoActivateId(Tcl_Interp *interp, long winId);
 
 int DoListWindows(Tcl_Interp *interp);
 int DoGetProps(Tcl_Interp *interp, long winId);
+int DoPointerState(Tcl_Interp *interp);
 
 #endif /* TKX_H */

@@ -154,3 +154,34 @@ int DoGetProps(Tcl_Interp *interp, long winId) {
     Tcl_SetObjResult(interp, result);
     return TCL_OK;
 }
+
+int DoPointerState(Tcl_Interp *interp) {
+    REQUIRE_DISPLAY(interp, dpy);
+    Window root = DefaultRootWindow(dpy);
+
+    Window root_ret, child_ret;
+    int root_x, root_y, win_x, win_y;
+    unsigned int mask;
+
+    if (!XQueryPointer(dpy, root, &root_ret, &child_ret,
+                       &root_x, &root_y, &win_x, &win_y, &mask)) {
+        Tcl_SetResult(interp, "XQueryPointer failed", TCL_STATIC);
+        return TCL_ERROR;
+    }
+
+    /* Return dict with button states and pointer position */
+    Tcl_Obj *result = Tcl_NewDictObj();
+    Tcl_DictObjPut(interp, result,
+        Tcl_NewStringObj("x", -1), Tcl_NewIntObj(root_x));
+    Tcl_DictObjPut(interp, result,
+        Tcl_NewStringObj("y", -1), Tcl_NewIntObj(root_y));
+    Tcl_DictObjPut(interp, result,
+        Tcl_NewStringObj("button1", -1), Tcl_NewBooleanObj(mask & Button1Mask));
+    Tcl_DictObjPut(interp, result,
+        Tcl_NewStringObj("button2", -1), Tcl_NewBooleanObj(mask & Button2Mask));
+    Tcl_DictObjPut(interp, result,
+        Tcl_NewStringObj("button3", -1), Tcl_NewBooleanObj(mask & Button3Mask));
+
+    Tcl_SetObjResult(interp, result);
+    return TCL_OK;
+}

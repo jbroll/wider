@@ -112,9 +112,11 @@ wm::load_slots
 set monitoring 1
 set monitor_interval 500  ;# ms
 set swap_threshold 150    ;# pixels - distance to trigger swap
+set pending_snap ""
+set pending_geom {}
 
 proc assign_and_snap_slots {} {
-    global status swap_threshold
+    global status swap_threshold pending_snap pending_geom
 
     set windows [wm::windows]
     set active_id [TkX::active_window]
@@ -171,10 +173,15 @@ proc assign_and_snap_slots {} {
                     if {$second_dist <= $swap_threshold} {
                         lappend assigned $second_id
                         lappend unassigned [list $first_id $first_win]
-                        # Convert slot units to pixels
+                        # Move second window into slot, or defer if being dragged
                         set hints [wm::get_size_hints $second_id]
                         lassign [wm::units_to_pixels $w $h $hints] pw ph
-                        wm::move $second_id 0 $x $y $pw $ph
+                        if {$second_id ne $active_id} {
+                            wm::move $second_id 0 $x $y $pw $ph
+                        } else {
+                            set pending_snap $second_id
+                            set pending_geom [list $x $y $pw $ph]
+                        }
                         set status "Swapped"
                         continue
                     }
@@ -224,6 +231,16 @@ proc assign_and_snap_slots {} {
                     wm::move $win_id 0 $x $y $pw $ph
                 }
             }
+        }
+    }
+
+    # Complete pending snap when mouse released
+    if {$pending_snap ne ""} {
+        set pstate [TkX::pointer_state]
+        if {![dict get $pstate button1] && ![dict get $pstate button2] && ![dict get $pstate button3]} {
+            lassign $pending_geom x y w h
+            wm::move $pending_snap 0 $x $y $w $h
+            set pending_snap ""
         }
     }
 }
