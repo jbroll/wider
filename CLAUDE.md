@@ -13,23 +13,23 @@ Wider is a Tcl/Tk window arranger for X11 Linux desktops. It manages window posi
 make
 
 # Run GUI with slot monitoring (default)
-tclsh wider.tcl
+tclsh wider/wider.tcl
 
 # CLI options
-tclsh wider.tcl --arrange    # Snap windows to slot positions
-tclsh wider.tcl --launch     # Launch missing apps from slots
-tclsh wider.tcl --generate   # Generate slots.tcl from layout.tcl
-tclsh wider.tcl --autostart  # Generate ~/.config/autostart/*.desktop files
-tclsh wider.tcl --save       # Save window snapshot (legacy)
-tclsh wider.tcl --restore    # Restore from snapshot (legacy)
+tclsh wider/wider.tcl --arrange    # Snap windows to slot positions
+tclsh wider/wider.tcl --launch     # Launch missing apps from slots
+tclsh wider/wider.tcl --generate   # Generate slots.tcl from layout.tcl
+tclsh wider/wider.tcl --autostart  # Generate ~/.config/autostart/*.desktop files
+tclsh wider/wider.tcl --save       # Save window snapshot (legacy)
+tclsh wider/wider.tcl --restore    # Restore from snapshot (legacy)
 
 # Screenshot capture tool (requires 32-bit visual)
-./shooter
+shooter/shooter
 
 # Run tests
-tclsh test_units.tcl         # Unit tests (pure functions)
-tclsh test_roundtrip.tcl     # Integration test (window positioning)
-tclsh test_shape.tcl
+tclsh wider/test_units.tcl         # Unit tests (pure functions)
+tclsh wider/test_roundtrip.tcl     # Integration test (window positioning)
+tclsh tkx/test_shape.tcl           # TkX shape extension test
 ```
 
 ## Slot System
@@ -56,7 +56,7 @@ Windows with the same role but different slot positions are **swappable** - drag
 
 ### Core Components
 
-- **wider.tcl**: Slot editor GUI with window list and monitoring
+- **wider/wider.tcl**: Slot editor GUI with window list and monitoring
 
   **Window List:**
   - Checkbox column to toggle managed/unmanaged state
@@ -77,7 +77,7 @@ Windows with the same role but different slot positions are **swappable** - drag
   - The active window (being dragged) is not moved
   - **Swap detection**: If two windows with the same role are near the same slot, they swap positions
 
-- **wmctrl.tcl**: Core library in the `wm::` namespace:
+- **wider/wmctrl.tcl**: Core library in the `wm::` namespace:
 
   **Window Management:**
   - `wm::windows` - Lists windows with id, desktop, pid, position, size, class, cmdline, role
@@ -111,7 +111,7 @@ Windows with the same role but different slot positions are **swappable** - drag
   - `TkX::rgba_*` - 32-bit ARGB visual support (overlay windows, transparency)
   - `TkX::grab_focus` - Keyboard focus for overrideredirect windows
 
-- **shooter.tcl**: Screenshot capture tool with transparent frame UI. Uses TkX for click-through transparency and screen capture. Requires 32-bit visual (use `./shooter` wrapper).
+- **shooter/shooter.tcl**: Screenshot capture tool with transparent frame UI. Uses TkX for click-through transparency and screen capture. Requires 32-bit visual (use `shooter/shooter` wrapper).
 
 ### Window Type Detection
 
