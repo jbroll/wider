@@ -4,8 +4,7 @@
 #
 # Press 'q' or Escape to quit
 
-lappend auto_path [file dirname [info script]]
-lappend auto_path [file join [file dirname [info script]] lib]
+lappend auto_path [file join [file dirname [info script]] tkx lib]
 package require Tk
 package require TkX
 

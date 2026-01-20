@@ -100,7 +100,7 @@ Windows with the same role but different slot positions are **swappable** - drag
   **Legacy (snapshot-based):**
   - `wm::save` / `wm::restore` - Save/restore by class+size matching
 
-- **TkX.tcl**: Critcl-based X11 extension package providing:
+- **tkx/TkX.tcl**: Critcl-based X11 extension package (in `tkx/` subdirectory) providing:
   - `TkX::capture` - Capture window/screen region to Tk photo image
   - `TkX::input_hole/reset` - X11 Shape extension for click-through regions
   - `TkX::bounding_hole/reset` - Visual transparency holes

@@ -16,7 +16,7 @@ while {[file type $script] eq "link"} {
     set script [file join [file dirname $script] [file readlink $script]]
 }
 set script_dir [file dirname [file normalize $script]]
-lappend auto_path [file join $script_dir lib]
+lappend auto_path [file join $script_dir tkx lib]
 source [file join $script_dir wmctrl.tcl]
 
 # CLI mode - handle before loading Tk

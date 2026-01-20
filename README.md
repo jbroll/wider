@@ -89,6 +89,6 @@ Requires 32-bit visual. The wrapper script passes `-visual "truecolor 32"` to wi
 
 - `wider.tcl` - Main GUI
 - `wmctrl.tcl` - Window management library (wm:: namespace)
-- `TkX.tcl` - X11 extension (critcl)
+- `tkx/` - TkX X11 extension (critcl)
 - `shooter.tcl` - Screenshot capture
 - `shooter` - Wrapper for 32-bit visual

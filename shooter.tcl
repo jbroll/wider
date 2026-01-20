@@ -12,8 +12,7 @@ if {[winfo depth .] != 32} {
 
 # Resolve symlinks to find actual script location
 set scriptDir [file dirname [file normalize [info script]]]
-lappend auto_path $scriptDir
-lappend auto_path [file join $scriptDir lib]
+lappend auto_path [file join $scriptDir tkx lib]
 package require TkX
 
 # ----------------------------

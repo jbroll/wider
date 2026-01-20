@@ -1,15 +1,20 @@
+# shooter
 
+Screenshot capture tool with transparent overlay UI.
 
-Use xgetimage.tck
-Use csd.tcl
+## Usage
 
-Init Tk window iconified
-Set CSD for no decorations as GTk does
-XGetImage root 
-Set root pixmap as  canvas background
+```
+./shooter
+```
 
-Deiconify image
-Fade areas outside the capture rectangle with alpha .3?
-Draw capture rectangle as white with handles
+Requires 32-bit visual. The wrapper script passes `-visual "truecolor 32"` to wish.
 
-On RET - withdraw app, wait for delay, and recapture live root.
+## How it works
+
+Uses TkX extension for:
+- `TkX::capture` - Screen/window capture to Tk photo image
+- `TkX::grab_focus` - Keyboard focus for overrideredirect window
+- RGBA visual support for true transparency
+
+The overlay window shows a live desktop background with a draggable/resizable capture region. Press Enter to capture, Escape to cancel.
