@@ -1,7 +1,7 @@
 [Desktop Entry]
 Name=Shooter
 Comment=Capture screen region
-Exec=/home/john/src/wider/shooter
+Exec=/home/john/src/wider/shooter/shooter
 Icon=applets-screenshooter
 Terminal=false
 Type=Application
