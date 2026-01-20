@@ -1,7 +1,9 @@
 #!/usr/bin/env tclsh
 # Test position round-trip for all windows
 
-source [file join [file dirname [info script]] wmctrl.tcl]
+set script_dir [file dirname [info script]]
+lappend auto_path [file join $script_dir .. tkx lib]
+source [file join $script_dir wmctrl.tcl]
 
 puts "=== Window Position Roundtrip Test ===\n"
 
