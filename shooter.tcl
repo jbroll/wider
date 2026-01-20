@@ -2,6 +2,7 @@
 #
 # shooter.tcl - Screenshot region capture with true transparency
 #
+package require Tk
 
 # Require 32-bit visual
 if {[winfo depth .] != 32} {

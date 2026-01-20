@@ -1,2 +1,2 @@
 #!/bin/sh
-exec wish9.1 -visual "truecolor 32" "$(dirname "$(readlink -f "$0")")/shooter.tcl" "$@"
+exec /home/john/bin/wish9.1 "$(dirname "$(readlink -f "$0")")/shooter.tcl" -visual "truecolor 32" -- "$@" 

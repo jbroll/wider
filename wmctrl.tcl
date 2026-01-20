@@ -881,7 +881,7 @@ namespace eval wm {
                 set f [open $filename w]
                 puts $f "\[Desktop Entry\]"
                 puts $f "Type=Application"
-                puts $f "Name=$role (Wider)"
+                puts $f "Name=$role"
                 puts $f "Exec=$exec"
                 puts $f "X-GNOME-Autostart-enabled=true"
                 close $f

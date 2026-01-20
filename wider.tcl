@@ -650,7 +650,26 @@ proc on_command_change {id} {
 }
 
 proc save_all {} {
-    global status
+    global status window_data
+
+    # Rebuild slots from currently managed windows
+    set wm::slots {}
+    dict for {id win} $window_data {
+        if {![dict get $win managed]} continue
+        set slot [dict create \
+            role [dict get $win role] \
+            class [dict get $win class] \
+            x [dict get $win x] \
+            y [dict get $win y] \
+            w [dict get $win w] \
+            h [dict get $win h]]
+        set cmd [dict get $win command]
+        if {$cmd ne ""} {
+            dict set slot command $cmd
+        }
+        lappend wm::slots $slot
+    }
+
     wm::save_slots
     wm::generate_autostart
     set status "Saved slots and autostart files"
