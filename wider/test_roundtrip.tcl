@@ -3,13 +3,14 @@
 
 set script_dir [file dirname [info script]]
 lappend auto_path [file join $script_dir .. tkx lib]
-source [file join $script_dir wmctrl.tcl]
+source [file join $script_dir windows.tcl]
+source [file join $script_dir slots.tcl]
 
 puts "=== Window Position Roundtrip Test ===\n"
 
 # Capture original positions
 set before {}
-foreach win [wm::windows] {
+foreach win [win::list] {
     set id [dict get $win id]
     set class [dict get $win class]
     set desktop [dict get $win desktop]
@@ -24,18 +25,18 @@ foreach win [wm::windows] {
 }
 
 puts "\nSaving layout..."
-wm::save /tmp/test_layout.tcl
+slot::save_layout /tmp/test_layout.tcl
 after 200
 
 puts "Restoring layout..."
-wm::restore /tmp/test_layout.tcl
+slot::restore_layout /tmp/test_layout.tcl
 after 500
 
 puts "\n=== Results ===\n"
 set pass 0
 set fail 0
 
-foreach win [wm::windows] {
+foreach win [win::list] {
     set id [dict get $win id]
     set class [dict get $win class]
     set desktop [dict get $win desktop]

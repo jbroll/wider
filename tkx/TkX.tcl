@@ -347,4 +347,11 @@ critcl::cproc TkX::pointer_state {
     return DoPointerState(interp);
 }
 
+critcl::cproc TkX::get_size_hints {
+    Tcl_Interp* interp
+    long window_id
+} ok {
+    return DoGetSizeHints(interp, window_id);
+}
+
 package provide TkX 1.0

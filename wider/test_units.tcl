@@ -1,9 +1,10 @@
 #!/usr/bin/env tclsh
-# Unit tests for wmctrl.tcl pure functions
+# Unit tests for windows.tcl and slots.tcl
 
 set script_dir [file dirname [info script]]
 lappend auto_path [file join $script_dir .. tkx lib]
-source [file join $script_dir wmctrl.tcl]
+source [file join $script_dir windows.tcl]
+source [file join $script_dir slots.tcl]
 
 set pass 0
 set fail 0
@@ -43,23 +44,23 @@ proc test_error {name body pattern} {
 puts "=== parse_geometry tests ===\n"
 
 test "parse basic geometry" {
-    wm::parse_geometry "800x600+100+50"
+    win::parse_geometry "800x600+100+50"
 } {w 800 h 600 x 100 y 50}
 
 test "parse zero position" {
-    wm::parse_geometry "1920x1080+0+0"
+    win::parse_geometry "1920x1080+0+0"
 } {w 1920 h 1080 x 0 y 0}
 
 test "parse large values" {
-    wm::parse_geometry "2560x1440+3840+0"
+    win::parse_geometry "2560x1440+3840+0"
 } {w 2560 h 1440 x 3840 y 0}
 
 test_error "reject invalid geometry" {
-    wm::parse_geometry "invalid"
+    win::parse_geometry "invalid"
 } {invalid geometry:*}
 
 test_error "reject partial geometry" {
-    wm::parse_geometry "800x600"
+    win::parse_geometry "800x600"
 } {invalid geometry:*}
 
 puts "\n=== slot file I/O tests ===\n"
@@ -68,21 +69,21 @@ set test_dir [file join /tmp wider-test-[pid]]
 file mkdir $test_dir
 
 # Test slot save/load roundtrip (list format)
-set wm::slots [list \
+set slot::data [list \
     [dict create role terminal-left class Xfce4-terminal x 0 y 0 w 960 h 1080 command {xfce4-terminal --role=terminal-left}] \
     [dict create role browser class Firefox x 960 y 0 w 960 h 1080 command firefox] \
 ]
 
 set slots_file [file join $test_dir slots.tcl]
-wm::save_slots $slots_file
+slot::save $slots_file
 
 test "slots file created" {
     file exists $slots_file
 } 1
 
 # Reload and verify
-set wm::slots {}
-set count [wm::load_slots $slots_file]
+set slot::data {}
+set count [slot::load $slots_file]
 
 test "load returns slot count" {
     expr {$count == 2}
@@ -90,7 +91,7 @@ test "load returns slot count" {
 
 # Find slot by role
 proc find_slot {role} {
-    foreach slot $wm::slots {
+    foreach slot [slot::all] {
         if {[dict get $slot role] eq $role} {
             return $slot
         }
@@ -113,7 +114,7 @@ test "slot geometry parsed" {
 puts "\n=== autostart generation tests ===\n"
 
 set autostart_dir [file join $test_dir autostart]
-wm::generate_autostart $autostart_dir
+slot::generate_autostart $autostart_dir
 
 test "autostart dir created" {
     file isdirectory $autostart_dir
@@ -138,14 +139,14 @@ set slot2 [dict create x 200 y 0 w 100 h 100 role slot2]
 # Mock window at slot1 position
 set win1 {x 0 y 0 w 100 h 100}
 test "window at slot position has zero distance" {
-    expr {[wm::slot_distance_to $win1 $slot1] < 1}
+    expr {[slot::distance_to $win1 $slot1] < 1}
 } 1
 
 # Mock window between slots
 set win2 {x 100 y 0 w 100 h 100}
 test "window between slots has equal distance" {
-    set d1 [wm::slot_distance_to $win2 $slot1]
-    set d2 [wm::slot_distance_to $win2 $slot2]
+    set d1 [slot::distance_to $win2 $slot1]
+    set d2 [slot::distance_to $win2 $slot2]
     expr {abs($d1 - $d2) < 1}
 } 1
 

@@ -185,3 +185,31 @@ int DoPointerState(Tcl_Interp *interp) {
     Tcl_SetObjResult(interp, result);
     return TCL_OK;
 }
+
+int DoGetSizeHints(Tcl_Interp *interp, long winId) {
+    REQUIRE_DISPLAY(interp, dpy);
+    Window win = (Window)winId;
+
+    XSizeHints hints;
+    long supplied;
+
+    Tcl_Obj *result = Tcl_NewDictObj();
+
+    if (XGetWMNormalHints(dpy, win, &hints, &supplied)) {
+        if (hints.flags & PResizeInc) {
+            Tcl_DictObjPut(interp, result,
+                Tcl_NewStringObj("inc_w", -1), Tcl_NewIntObj(hints.width_inc));
+            Tcl_DictObjPut(interp, result,
+                Tcl_NewStringObj("inc_h", -1), Tcl_NewIntObj(hints.height_inc));
+        }
+        if (hints.flags & PBaseSize) {
+            Tcl_DictObjPut(interp, result,
+                Tcl_NewStringObj("base_w", -1), Tcl_NewIntObj(hints.base_width));
+            Tcl_DictObjPut(interp, result,
+                Tcl_NewStringObj("base_h", -1), Tcl_NewIntObj(hints.base_height));
+        }
+    }
+
+    Tcl_SetObjResult(interp, result);
+    return TCL_OK;
+}
