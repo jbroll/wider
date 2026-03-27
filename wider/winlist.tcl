@@ -12,26 +12,24 @@ set skip_classes {Xfdesktop Xfce4-panel Plank Polybar Xfwm4 Wrapper-2.0}
 
 # ========== Helper Procs ==========
 
-# Find best unclaimed slot matching role, returns {idx slot} or {-1 {}}
-proc find_best_slot {role claimed_slots win} {
+# Find best unclaimed position for a role, returns {role_name pos_idx pos} or {"" -1 {}}
+proc find_best_position {role claimed win} {
+    set role_data [slot::all]
+    if {![dict exists $role_data $role]} {return {"" -1 {}}}
+    set role_info [dict get $role_data $role]
+    set positions [dict get $role_info positions]
+
     set matching {}
     set idx -1
-    foreach slot [slot::all] {
+    foreach pos $positions {
         incr idx
-        if {$idx in $claimed_slots} continue
-        if {![slot::has_role $slot $role]} continue
-        lappend matching [list $idx $slot [slot::distance_to $win $slot]]
+        set key "$role:$idx"
+        if {$key in $claimed} continue
+        lappend matching [list $role $idx $pos [slot::distance_to $win $pos]]
     }
-    if {[llength $matching] == 0} {return {-1 {}}}
-    set best [slot::min_by {apply {{x} {lindex $x 2}}} $matching]
-    list [lindex $best 0] [lindex $best 1]
-}
-
-# Build slot dict with optional command
-proc make_slot_dict {role class x y w h {cmd ""}} {
-    set slot [dict create role $role class $class x $x y $y w $w h $h]
-    if {$cmd ne ""} { dict set slot command $cmd }
-    return $slot
+    if {[llength $matching] == 0} {return {"" -1 {}}}
+    set best [slot::min_by {apply {{x} {lindex $x 3}}} $matching]
+    list [lindex $best 0] [lindex $best 1] [lindex $best 2]
 }
 
 # Create entry widget with Return/FocusOut bindings
@@ -108,16 +106,16 @@ proc refresh_window_list {} {
         string compare $ra $rb
     }}} [pick displayable_window? [win::list]]]
 
-    # Assign slots to windows (1:1 matching, closest first)
+    # Assign positions to windows (1:1 matching, closest first)
     set claimed {}
-    set win_to_slot {}
+    set win_to_pos {}
     foreach win $wins {
         set role [dict get $win role]
         if {$role eq ""} continue
-        lassign [find_best_slot $role $claimed $win] idx slot
+        lassign [find_best_position $role $claimed $win] r idx pos
         if {$idx >= 0} {
-            lappend claimed $idx
-            dict set win_to_slot [dict get $win id] $slot
+            lappend claimed "$r:$idx"
+            dict set win_to_pos [dict get $win id] [dict create role $r pos_idx $idx pos $pos]
         }
     }
 
@@ -128,9 +126,19 @@ proc refresh_window_list {} {
             lassign [win::pixels_to_units $w $h $hints] uw uh
             set geom "${uw}x${uh}+${x}+${y}"
 
-            set slot [win::dget $win_to_slot $id {}]
-            set managed [expr {[dict size $slot] > 0}]
-            set command [expr {$managed && [dict exists $slot command] ? [dict get $slot command] : [win::dget $win cmdline ""]}]
+            set match [win::dget $win_to_pos $id {}]
+            set managed [expr {[dict size $match] > 0}]
+
+            # Get command from role config if managed, else from window
+            set command ""
+            if {$managed} {
+                set role_data [slot::all]
+                set r [dict get $match role]
+                if {[dict exists $role_data $r] && [dict exists [dict get $role_data $r] command]} {
+                    set command [dict get [dict get $role_data $r] command]
+                }
+            }
+            if {$command eq ""} { set command [win::dget $win cmdline ""] }
 
             dict set window_data $id [dict create \
                 class $class role $role geom $geom title $title \
@@ -182,8 +190,8 @@ proc on_managed_toggle {id} {
 
     dict with win {
         if {!$managed} {
-            set idx [slot::find_index $role $x $y]
-            if {$idx >= 0} { slot::remove_at $idx }
+            set idx [slot::find_position $role $x $y]
+            if {$idx >= 0} { slot::remove_position $role $idx }
             dict set window_data $id managed 0
             set status "Removed $class from slots"
         } else {
@@ -194,7 +202,8 @@ proc on_managed_toggle {id} {
                 [dict get $widgets role] delete 0 end
                 [dict get $widgets role] insert 0 $role
             }
-            slot::add [make_slot_dict $role $class $x $y $w $h $command]
+            set pos [dict create x $x y $y w $w h $h]
+            slot::add_position $role $pos $class $command
             dict set window_data $id managed 1
             set status "Added $class to slots"
         }
@@ -208,16 +217,20 @@ proc on_role_change {id} {
     set ctx [get_change_context $id role]
     if {$ctx eq {}} return
     lassign $ctx entry new_role win old_role widgets
+
     if {$new_role eq ""} return
 
     dict with win {
         win::set_role $id $new_role
         dict set window_data $id role $new_role
 
-        set old_idx [slot::find_index $old_role $x $y]
-        if {$old_idx >= 0} { slot::remove_at $old_idx }
+        # Remove from old role
+        set old_idx [slot::find_position $old_role $x $y]
+        if {$old_idx >= 0} { slot::remove_position $old_role $old_idx }
 
-        slot::add [make_slot_dict $new_role $class $x $y $w $h $command]
+        # Add to new role
+        set pos [dict create x $x y $y w $w h $h]
+        slot::add_position $new_role $pos $class $command
     }
 
     dict set window_data $id managed 1
@@ -268,9 +281,18 @@ proc on_command_change {id} {
     set old_cmd [dict get [dict get $window_data $id] command]
     if {$new_cmd eq $old_cmd} return
 
+    set win [dict get $window_data $id]
+    set role [dict get $win role]
+
     if {$new_cmd ne ""} { win::set_command $id $new_cmd }
     dict set window_data $id command $new_cmd
-    set status "Set WM_COMMAND: $new_cmd"
+
+    # Update the role's command (affects all positions of this role)
+    if {$role ne ""} {
+        slot::set_command $role $new_cmd
+        save_all
+    }
+    set status "Command for $role: $new_cmd"
 }
 
 # ========== Actions ==========
@@ -278,15 +300,85 @@ proc on_command_change {id} {
 proc save_all {} {
     global status window_data
 
-    # Rebuild slot list from window_data
-    set slot::data [lmap id_win [dict keys $window_data] {
-        set win [dict get $window_data $id_win]
+    # Update slot data from window_data, preserving unoccupied positions
+    # Group managed windows by role
+    set by_role {}
+    dict for {id win} $window_data {
         if {![dict get $win managed]} continue
-        dict with win {
-            make_slot_dict $role $class $x $y $w $h $command
-        }
-    }]
+        set role [dict get $win role]
+        dict lappend by_role $role $win
+    }
 
+    # For each role with managed windows, update class/command and positions
+    set role_data [slot::all]
+    set new_data {}
+
+    # First, preserve existing roles (keeps unoccupied positions)
+    dict for {role_name role_info} $role_data {
+        dict set new_data $role_name $role_info
+    }
+
+    # Update roles that have managed windows
+    dict for {role wins} $by_role {
+        set first [lindex $wins 0]
+        set positions [lmap w $wins {
+            dict create x [dict get $w x] y [dict get $w y] \
+                        w [dict get $w w] h [dict get $w h]
+        }]
+
+        if {[dict exists $new_data $role]} {
+            # Role exists - update positions for windows we know about,
+            # but keep positions that have no current window
+            set existing [dict get [dict get $new_data $role] positions]
+            set updated_positions {}
+            set used_wins {}
+
+            # Match existing positions to windows
+            foreach epos $existing {
+                set best_win ""
+                set best_dist 999999
+                foreach w $wins {
+                    set wid [dict get $w role];# just for tracking
+                    if {$w in $used_wins} continue
+                    set d [slot::distance_to $w $epos]
+                    if {$d < $best_dist} { set best_dist $d; set best_win $w }
+                }
+                if {$best_win ne "" && $best_dist < 400} {
+                    # Update position from window
+                    lappend updated_positions [dict create \
+                        x [dict get $best_win x] y [dict get $best_win y] \
+                        w [dict get $best_win w] h [dict get $best_win h]]
+                    lappend used_wins $best_win
+                } else {
+                    # Keep existing position (no matching window)
+                    lappend updated_positions $epos
+                }
+            }
+            # Add any windows that didn't match an existing position
+            foreach w $wins {
+                if {$w in $used_wins} continue
+                lappend updated_positions [dict create \
+                    x [dict get $w x] y [dict get $w y] \
+                    w [dict get $w w] h [dict get $w h]]
+            }
+            dict set new_data $role positions $updated_positions
+            dict set new_data $role class [dict get $first class]
+            if {[dict get $first command] ne ""} {
+                dict set new_data $role command [dict get $first command]
+            }
+        } else {
+            # New role
+            set role_info [dict create \
+                class [dict get $first class] \
+                positions $positions]
+            if {[dict get $first command] ne ""} {
+                dict set role_info command [dict get $first command]
+            }
+            dict set new_data $role $role_info
+        }
+    }
+
+    set slot::data $new_data
     slot::save
     slot::generate_autostart
     set status "Saved slots and autostart files"
@@ -342,18 +434,14 @@ proc do_snap {} {
             set hints [win::get_size_hints $id]
             lassign [win::pixels_to_units $w $h $hints] uw uh
 
-            lassign [find_best_slot $role $claimed $win] idx slot
+            lassign [find_best_position $role $claimed $win] r idx pos
 
+            set new_pos [dict create x $x y $y w $uw h $uh]
             if {$idx >= 0} {
-                lappend claimed $idx
-                dict set slot x $x
-                dict set slot y $y
-                dict set slot w $uw
-                dict set slot h $uh
-                if {$cmdline ne ""} { dict set slot command $cmdline }
-                slot::set_at $idx $slot
+                lappend claimed "$r:$idx"
+                slot::set_position $role $idx $new_pos
             } else {
-                slot::add [make_slot_dict $role $class $x $y $uw $uh $cmdline]
+                slot::add_position $role $new_pos $class
             }
         }
         incr count

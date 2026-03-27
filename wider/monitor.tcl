@@ -30,16 +30,12 @@ proc assign_and_snap_slots {} {
             set win
         }]]
 
-    set sorted_slots [lsort -command slot_position_cmp [slot::all]]
+    set sorted_slots [lsort -command slot_position_cmp [slot::positions]]
     set assigned {}
     set unassigned {}
     set empty_slots {}
 
     foreach slot $sorted_slots {
-        if {![dict exists $slot role]} {
-            lappend empty_slots $slot
-            continue
-        }
         set role [dict get $slot role]
         set sx [dict get $slot x]
         set sy [dict get $slot y]
