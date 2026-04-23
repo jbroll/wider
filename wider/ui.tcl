@@ -86,7 +86,7 @@ col .f {
         -padx 3
 
         ! "Refresh" -command refresh_window_list
-        ! "Snap" -command do_snap
+        ! "Save" -command do_snap
         ! "Arrange" -command do_arrange
         ! "Launch" -command do_launch
         ! ::ui::monitor "Monitor: ON" -command toggle_monitoring -foreground darkgreen

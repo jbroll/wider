@@ -1,7 +1,7 @@
 # winlist.tcl - Window list UI and handlers
 #
 # Manages the scrollable window list, event handlers for editing slots,
-# and action buttons (refresh, snap, arrange, launch).
+# and action buttons (refresh, save, arrange, launch).
 
 # Window list state
 set window_data {}
@@ -298,87 +298,7 @@ proc on_command_change {id} {
 # ========== Actions ==========
 
 proc save_all {} {
-    global status window_data
-
-    # Update slot data from window_data, preserving unoccupied positions
-    # Group managed windows by role
-    set by_role {}
-    dict for {id win} $window_data {
-        if {![dict get $win managed]} continue
-        set role [dict get $win role]
-        dict lappend by_role $role $win
-    }
-
-    # For each role with managed windows, update class/command and positions
-    set role_data [slot::all]
-    set new_data {}
-
-    # First, preserve existing roles (keeps unoccupied positions)
-    dict for {role_name role_info} $role_data {
-        dict set new_data $role_name $role_info
-    }
-
-    # Update roles that have managed windows
-    dict for {role wins} $by_role {
-        set first [lindex $wins 0]
-        set positions [lmap w $wins {
-            dict create x [dict get $w x] y [dict get $w y] \
-                        w [dict get $w w] h [dict get $w h]
-        }]
-
-        if {[dict exists $new_data $role]} {
-            # Role exists - update positions for windows we know about,
-            # but keep positions that have no current window
-            set existing [dict get [dict get $new_data $role] positions]
-            set updated_positions {}
-            set used_wins {}
-
-            # Match existing positions to windows
-            foreach epos $existing {
-                set best_win ""
-                set best_dist 999999
-                foreach w $wins {
-                    set wid [dict get $w role];# just for tracking
-                    if {$w in $used_wins} continue
-                    set d [slot::distance_to $w $epos]
-                    if {$d < $best_dist} { set best_dist $d; set best_win $w }
-                }
-                if {$best_win ne "" && $best_dist < 400} {
-                    # Update position from window
-                    lappend updated_positions [dict create \
-                        x [dict get $best_win x] y [dict get $best_win y] \
-                        w [dict get $best_win w] h [dict get $best_win h]]
-                    lappend used_wins $best_win
-                } else {
-                    # Keep existing position (no matching window)
-                    lappend updated_positions $epos
-                }
-            }
-            # Add any windows that didn't match an existing position
-            foreach w $wins {
-                if {$w in $used_wins} continue
-                lappend updated_positions [dict create \
-                    x [dict get $w x] y [dict get $w y] \
-                    w [dict get $w w] h [dict get $w h]]
-            }
-            dict set new_data $role positions $updated_positions
-            dict set new_data $role class [dict get $first class]
-            if {[dict get $first command] ne ""} {
-                dict set new_data $role command [dict get $first command]
-            }
-        } else {
-            # New role
-            set role_info [dict create \
-                class [dict get $first class] \
-                positions $positions]
-            if {[dict get $first command] ne ""} {
-                dict set role_info command [dict get $first command]
-            }
-            dict set new_data $role $role_info
-        }
-    }
-
-    set slot::data $new_data
+    global status
     slot::save
     slot::generate_autostart
     set status "Saved slots and autostart files"
@@ -450,10 +370,10 @@ proc do_snap {} {
     if {$count > 0} {
         slot::save
         slot::generate_autostart
-        set status "Snapped $count windows"
+        set status "Saved $count window positions"
         refresh_window_list
     } else {
-        set status "No windows to snap"
+        set status "No windows to save"
     }
 
     set monitoring $was_monitoring

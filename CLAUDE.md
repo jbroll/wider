@@ -66,8 +66,8 @@ Windows with the same role but different slot positions are **swappable** - drag
 
   **Buttons:**
   - **Refresh**: Reload window list from X11, updating positions and properties
-  - **Snap**: Save current window positions to their slot configs (opposite of Arrange)
-  - **Arrange**: Move windows to their slot positions. Windows already within 50px of their slot are snapped to exact position first, then remaining windows fill remaining slots. One window per slot, no duplicates.
+  - **Save**: Save current window positions to their slot configs and regenerate autostart files (opposite of Arrange). Workflow: Monitor OFF → move windows → Refresh → Save → Monitor ON.
+  - **Arrange**: Move windows to their slot positions. One window per slot, no duplicates.
   - **Launch**: Start apps for slots that have a `command` but no matching window
   - **Monitor**: Toggle position monitoring ON/OFF
 

@@ -59,7 +59,7 @@ The window list shows all managed windows. Double-click to edit role, geometry, 
 Buttons:
 
 - **Refresh** - Reload window list from X11
-- **Snap** - Save current window positions to their slots. Creates new slots for windows with roles that don't have one.
+- **Save** - Save current window positions to their slots and regenerate autostart files. Workflow: Monitor OFF → move windows → Refresh → Save → Monitor ON.
 - **Arrange** - Move windows to their slot positions. Windows within 50px of a slot snap first, then remaining windows fill remaining slots.
 - **Launch** - Start apps for slots that have a command but no matching window
 - **Monitor** - Toggle position monitoring on/off
