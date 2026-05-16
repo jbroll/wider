@@ -205,11 +205,13 @@ proc on_managed_toggle {id} {
 
     if {![dict exists $window_data $id]} return
     set widgets [dict get $row_widgets $id]
-    set managed [set [dict get $widgets var]]
+    # Read the checkbox into a name `dict with win` won't shadow: win has a
+    # `managed` key, and `dict with` would otherwise clobber this value.
+    set checked [set [dict get $widgets var]]
     set win [dict get $window_data $id]
 
     dict with win {
-        if {!$managed} {
+        if {!$checked} {
             set idx [slot::find_position $role $x $y]
             if {$idx >= 0} { slot::remove_position $role $idx }
             dict set window_data $id managed 0
