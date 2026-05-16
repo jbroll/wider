@@ -94,6 +94,15 @@ proc focus_highlight_loop {} {
 proc refresh_window_list {} {
     global status window_data row_widgets
 
+    # Preserve the user's explicit managed/unmanaged choice across refreshes.
+    # An unchecked window means "do not manage this window" - it must stay
+    # unchecked and be ignored entirely (no slot matching). Only windows
+    # never seen this session fall back to proximity-based auto-detection.
+    set prev_managed {}
+    dict for {pid pwin} $window_data {
+        dict set prev_managed $pid [dict get $pwin managed]
+    }
+
     foreach child [winfo children .card.list.canvas.inner] { destroy $child }
     set window_data {}
     set row_widgets {}
@@ -114,6 +123,9 @@ proc refresh_window_list {} {
     foreach win $wins {
         set role [dict get $win role]
         if {$role eq ""} continue
+        # Ignore windows the user explicitly unchecked - they don't claim slots
+        set wid [dict get $win id]
+        if {[dict exists $prev_managed $wid] && ![dict get $prev_managed $wid]} continue
         lassign [find_best_position $role $claimed $win] r idx pos
         if {$idx >= 0} {
             lappend claimed "$r:$idx"
@@ -129,13 +141,19 @@ proc refresh_window_list {} {
             set geom "${uw}x${uh}+${x}+${y}"
 
             set match [win::dget $win_to_pos $id {}]
-            set managed [expr {[dict size $match] > 0}]
+            # Carry the explicit choice forward; new windows default to a
+            # proximity match against existing slots.
+            if {[dict exists $prev_managed $id]} {
+                set managed [dict get $prev_managed $id]
+            } else {
+                set managed [expr {[dict size $match] > 0}]
+            }
 
             # Get command from role config if managed, else from window
             set command ""
             if {$managed} {
                 set role_data [slot::all]
-                set r [dict get $match role]
+                set r [expr {[dict size $match] > 0 ? [dict get $match role] : $role}]
                 if {[dict exists $role_data $r] && [dict exists [dict get $role_data $r] command]} {
                     set command [dict get [dict get $role_data $r] command]
                 }
