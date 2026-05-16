@@ -13,7 +13,7 @@ set skip_classes {Xfdesktop Xfce4-panel Plank Polybar Xfwm4 Wrapper-2.0}
 # ========== Helper Procs ==========
 
 # Find best unclaimed position for a role, returns {role_name pos_idx pos} or {"" -1 {}}
-proc find_best_position {role claimed win} {
+proc find_best_position {role claimed win {threshold 200}} {
     set role_data [slot::all]
     if {![dict exists $role_data $role]} {return {"" -1 {}}}
     set role_info [dict get $role_data $role]
@@ -25,7 +25,9 @@ proc find_best_position {role claimed win} {
         incr idx
         set key "$role:$idx"
         if {$key in $claimed} continue
-        lappend matching [list $role $idx $pos [slot::distance_to $win $pos]]
+        set dist [slot::distance_to $win $pos]
+        if {$dist > $threshold} continue
+        lappend matching [list $role $idx $pos $dist]
     }
     if {[llength $matching] == 0} {return {"" -1 {}}}
     set best [slot::min_by {apply {{x} {lindex $x 3}}} $matching]
@@ -335,7 +337,7 @@ proc do_launch {} {
 }
 
 proc do_snap {} {
-    global status monitoring
+    global status monitoring window_data
 
     # Force FocusOut on any active entry to apply pending edits
     focus .
@@ -344,41 +346,44 @@ proc do_snap {} {
     set was_monitoring $monitoring
     set monitoring 0
     set count 0
-    set claimed {}
 
-    foreach win [win::list] {
+    # Rebuild slots from the live window list: every checked window
+    # contributes exactly one position under its role. Unchecked windows
+    # and roles with no checked windows are dropped entirely, so stale
+    # positions and startup entries are purged rather than accumulated.
+    set new {}
+    dict for {id win} $window_data {
+        if {![dict get $win managed]} continue
         set role [dict get $win role]
         if {$role eq ""} continue
 
-        # Only save windows whose UI checkbox is checked (managed)
-        set mvar "::managed_[dict get $win id]"
-        if {![info exists $mvar] || ![set $mvar]} continue
+        set pos [dict create \
+            x [dict get $win x] y [dict get $win y] \
+            w [dict get $win w] h [dict get $win h]]
 
-        dict with win {
-            set hints [win::get_size_hints $id]
-            lassign [win::pixels_to_units $w $h $hints] uw uh
-
-            lassign [find_best_position $role $claimed $win] r idx pos
-
-            set new_pos [dict create x $x y $y w $uw h $uh]
-            if {$idx >= 0} {
-                lappend claimed "$r:$idx"
-                slot::set_position $role $idx $new_pos
-            } else {
-                slot::add_position $role $new_pos $class
+        if {![dict exists $new $role]} {
+            set info [dict create positions {}]
+            if {[dict get $win class] ne ""} {
+                dict set info class [dict get $win class]
             }
+            if {[dict get $win command] ne ""} {
+                dict set info command [dict get $win command]
+            }
+            dict set new $role $info
         }
+        dict with new $role { lappend positions $pos }
         incr count
     }
 
+    slot::replace_all $new
+    slot::save
+    slot::generate_autostart
     if {$count > 0} {
-        slot::save
-        slot::generate_autostart
         set status "Saved $count window positions"
-        refresh_window_list
     } else {
-        set status "No windows to save"
+        set status "No checked windows - cleared slots"
     }
+    refresh_window_list
 
     set monitoring $was_monitoring
 }

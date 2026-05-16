@@ -54,6 +54,9 @@ namespace eval slot {
     # Return the role dict
     proc all {} { variable data; return $data }
 
+    # Replace the entire role dict (used by Save to rebuild from live windows)
+    proc replace_all {new} { variable data; set data $new }
+
     # Return flat list of position dicts with role/class/command merged in
     proc positions {} {
         variable data

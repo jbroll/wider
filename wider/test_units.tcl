@@ -227,6 +227,39 @@ test "remove last position removes role" {
     dict exists [slot::all] mail
 } 0
 
+puts "\n=== replace_all (Save rebuild) tests ===\n"
+
+# Seed with junk: duplicate positions and a stale role, like a corrupted
+# slots.tcl produced by the old accumulating Save.
+set slot::data [dict create \
+    browser [dict create class Firefox command firefox positions [list \
+        [dict create x 0 y 0 w 100 h 100] \
+        [dict create x 0 y 0 w 100 h 100] \
+        [dict create x 0 y 0 w 100 h 100]]] \
+    stale [dict create class Stale command stale positions [list \
+        [dict create x 9 y 9 w 9 h 9]]] \
+]
+
+test "replace_all drops stale roles" {
+    slot::replace_all [dict create \
+        browser [dict create class Firefox command firefox positions [list \
+            [dict create x 10 y 20 w 800 h 600]]]]
+    dict exists [slot::all] stale
+} 0
+
+test "replace_all removes accumulated duplicate positions" {
+    llength [dict get [dict get [slot::all] browser] positions]
+} 1
+
+test "replace_all keeps the new position values" {
+    dict get [lindex [dict get [dict get [slot::all] browser] positions] 0] x
+} 10
+
+test "replace_all with empty dict clears everything" {
+    slot::replace_all {}
+    dict size [slot::all]
+} 0
+
 puts "\n=== autostart generation tests ===\n"
 
 set slot::data [dict create \
