@@ -350,6 +350,10 @@ proc do_snap {} {
         set role [dict get $win role]
         if {$role eq ""} continue
 
+        # Only save windows whose UI checkbox is checked (managed)
+        set mvar "::managed_[dict get $win id]"
+        if {![info exists $mvar] || ![set $mvar]} continue
+
         dict with win {
             set hints [win::get_size_hints $id]
             lassign [win::pixels_to_units $w $h $hints] uw uh
