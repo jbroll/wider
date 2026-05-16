@@ -13,7 +13,12 @@ set skip_classes {Xfdesktop Xfce4-panel Plank Polybar Xfwm4 Wrapper-2.0}
 # ========== Helper Procs ==========
 
 # Find best unclaimed position for a role, returns {role_name pos_idx pos} or {"" -1 {}}
-proc find_best_position {role claimed win {threshold 200}} {
+# Nearest unclaimed position for this role, with no distance limit:
+# #positions under a role == #managed windows, so 1:1 nearest matching
+# preserves the managed count across restarts regardless of where apps
+# reopen. Re-check prevention is handled by carry-forward + the rebuild,
+# not by a distance threshold.
+proc find_best_position {role claimed win} {
     set role_data [slot::all]
     if {![dict exists $role_data $role]} {return {"" -1 {}}}
     set role_info [dict get $role_data $role]
@@ -25,9 +30,7 @@ proc find_best_position {role claimed win {threshold 200}} {
         incr idx
         set key "$role:$idx"
         if {$key in $claimed} continue
-        set dist [slot::distance_to $win $pos]
-        if {$dist > $threshold} continue
-        lappend matching [list $role $idx $pos $dist]
+        lappend matching [list $role $idx $pos [slot::distance_to $win $pos]]
     }
     if {[llength $matching] == 0} {return {"" -1 {}}}
     set best [slot::min_by {apply {{x} {lindex $x 3}}} $matching]
