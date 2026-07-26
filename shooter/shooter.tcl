@@ -43,12 +43,70 @@ set BORDER 6
 set CORNER_SIZE 16
 
 # ----------------------------
+# Monitor geometry
+# ----------------------------
+# A saved position can name a monitor that is no longer attached, which X11
+# still accepts - the window just lands where nothing is displayed.
+proc monitor_rects {} {
+    set rects {}
+    set primary {}
+    catch {
+        foreach line [split [exec xrandr --listmonitors] \n] {
+            if {[regexp {^\s*\d+:\s+(\S+)\s+(\d+)/\d+x(\d+)/\d+\+(-?\d+)\+(-?\d+)} \
+                    $line -> name w h x y]} {
+                set rect [list $x $y $w $h]
+                lappend rects $rect
+                if {[string match {*\**} $name]} { set primary $rect }
+            }
+        }
+    }
+    if {![llength $rects]} {
+        set rects [list [list 0 0 [winfo screenwidth .] [winfo screenheight .]]]
+    }
+    if {$primary eq ""} { set primary [lindex $rects 0] }
+    return [list $primary $rects]
+}
+
+proc clamp_to_monitor {x y w h} {
+    lassign [monitor_rects] primary rects
+
+    set best $primary
+    set bestArea 0
+    set covered 0
+    foreach r $rects {
+        lassign $r mx my mw mh
+        set ow [expr {min($x + $w, $mx + $mw) - max($x, $mx)}]
+        set oh [expr {min($y + $h, $my + $mh) - max($y, $my)}]
+        set area [expr {max(0, $ow) * max(0, $oh)}]
+        incr covered $area
+        if {$area > $bestArea} {
+            set bestArea $area
+            set best $r
+        }
+    }
+
+    # Already fully visible, possibly spanning two monitors - leave it alone.
+    if {$covered >= $w * $h} { return [list $x $y $w $h] }
+
+    lassign $best mx my mw mh
+    set w [expr {min($w, $mw)}]
+    set h [expr {min($h, $mh)}]
+    set x [expr {max($mx, min($x, $mx + $mw - $w))}]
+    set y [expr {max($my, min($y, $my + $mh - $h))}]
+    return [list $x $y $w $h]
+}
+
+# ----------------------------
 # State
 # ----------------------------
-set winW [dict get $region w]
-set winH [dict get $region h]
-set winX [dict get $region x]
-set winY [dict get $region y]
+lassign [clamp_to_monitor \
+        [dict get $region x] [dict get $region y] \
+        [expr {[dict get $region w] + 2*$BORDER}] \
+        [expr {[dict get $region h] + $TOOLBAR_H + 2*$BORDER}]] \
+    winX winY outerW outerH
+
+set winW [expr {$outerW - 2*$BORDER}]
+set winH [expr {$outerH - $TOOLBAR_H - 2*$BORDER}]
 
 # ----------------------------
 # Configure root window for transparency
