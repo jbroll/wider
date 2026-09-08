@@ -14,11 +14,8 @@ function black() {
 // is actually drawn rather than on black.
 export const styleColors = signal(black())
 
-// The styles give their colors as #666, #495e91, hsl(30,23%,62%),
-// rgba(80, 78, 78, 1) and hsla(228,60%,21%,0.7). <input type="color"> takes
-// only #rrggbb, so let the browser do the parsing: it normalises a computed
-// color to rgb(r, g, b) whatever form it was written in. An unparseable string
-// leaves style.color unset.
+// The styles write colors in every CSS form and <input type="color"> takes
+// only #rrggbb, so let the browser parse. See docs/architecture.md.
 export function toHex(css) {
   const el = document.createElement('span')
   el.style.color = css
