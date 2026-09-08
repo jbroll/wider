@@ -1,5 +1,7 @@
 import { createMap } from './map.js'
 import { loadView, saveView } from './view.js'
+import { render } from 'preact'
+import { Places, attach } from './places.jsx'
 
 const NO_WEBGL = 'This window cannot draw the map: WebGL is unavailable.'
 
@@ -26,6 +28,9 @@ function start() {
       pitch: map.getPitch(),
     }), SAVE_DELAY)
   })
+
+  attach(map)
+  render(<Places map={map} />, document.getElementById('panel'))
 
   window.mapper = { map }
 }
