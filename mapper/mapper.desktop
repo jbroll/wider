@@ -5,4 +5,4 @@ Exec=/home/john/src/wider/mapper/mapper
 Icon=applications-internet
 Terminal=false
 Type=Application
-Categories=Network;Utility;
+Categories=Utility;
