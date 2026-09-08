@@ -2,6 +2,8 @@ import { render } from 'preact'
 import { signal } from '@preact/signals'
 
 import { STYLES, DEFAULT_STYLE_ID, loadStyle, saveStyle, styleUrl } from './styles.js'
+import { loadTweaks, applyTweaks } from './tweaks.js'
+import { tweaks } from './tweaks.jsx'
 
 const TOAST_MS = 4000
 
@@ -10,6 +12,10 @@ const message = signal('')
 
 let timer = 0
 let switchToken = 0
+
+// The style as fetched, untransformed. A stepper move re-transforms this same
+// object rather than refetching, so the transform must not mutate it.
+let fetched = null
 
 export function toast(text) {
   message.value = text
@@ -36,7 +42,10 @@ export async function switchStyle(map, store, id) {
     return false
   }
   if (token !== switchToken) return false
-  map.setStyle(style)
+  fetched = style
+  // Read at apply time, not at click time, so a stepper moved while this
+  // switch is in flight is carried by the switch when it lands.
+  map.setStyle(applyTweaks(style, tweaks.value))
   // styledata here is not a load confirmation, just the "style changed" tick
   // MapLibre fires once setState accepts the body. A body setState rejects as
   // invalid fires no styledata, so nothing gets persisted for it - that's the
@@ -71,8 +80,10 @@ function Toast() {
   return <div id="toast" aria-live="polite" hidden={!message.value}>{message.value}</div>
 }
 
-export function addStyleControl(map, store) {
+export function addStyleControl(map, store, style) {
   current.value = loadStyle(store)
+  tweaks.value = loadTweaks(store)
+  fetched = style
 
   const host = document.createElement('div')
   document.body.appendChild(host)

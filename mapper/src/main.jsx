@@ -1,6 +1,7 @@
 import { createMap } from './map.js'
 import { loadView, saveView } from './view.js'
 import { loadStyle, styleUrl } from './styles.js'
+import { loadTweaks, applyTweaks } from './tweaks.js'
 import { addStyleControl } from './styles.jsx'
 import { render } from 'preact'
 import { Places, attach } from './places.jsx'
@@ -11,11 +12,30 @@ const LOAD_FAILED = 'This window cannot draw the map: the map style failed to lo
 
 const SAVE_DELAY = 300
 
-function start() {
+// MapLibre's transformStyle hook exists only on setStyle, not on the map
+// constructor, so a style loaded by URL at startup cannot be transformed on the
+// way in. Fetching it here is the only way to hand the constructor an object.
+async function fetchStyle(id) {
+  const res = await fetch(styleUrl(id))
+  if (!res.ok) throw new Error('HTTP ' + res.status)
+  return res.json()
+}
+
+async function start() {
   const container = document.getElementById('map')
+
+  let style
+  try {
+    style = await fetchStyle(loadStyle(store))
+  } catch (err) {
+    container.textContent = LOAD_FAILED
+    console.error(err)
+    return
+  }
+
   let map
   try {
-    map = createMap(container, loadView(store), styleUrl(loadStyle(store)))
+    map = createMap(container, loadView(store), applyTweaks(style, loadTweaks(store)))
   } catch (err) {
     container.textContent = NO_WEBGL
     console.error(err)
@@ -46,7 +66,7 @@ function start() {
   })
 
   attach(map)
-  addStyleControl(map, store)
+  addStyleControl(map, store, style)
   render(<Places map={map} />, document.getElementById('panel'))
 
   window.mapper = { map }

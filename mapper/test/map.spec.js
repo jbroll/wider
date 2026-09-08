@@ -263,3 +263,20 @@ test('a failed style request keeps the current style and shows a toast', async (
   expect(await page.evaluate(() => localStorage.getItem('mapper.style'))).toBe(null)
   await expect(page.locator('#map')).not.toHaveText(/style failed to load/)
 })
+
+const textSize = (page, id) => page.evaluate(
+  (layerId) => window.mapper.map.getStyle().layers.find((l) => l.id === layerId).layout['text-size'], id)
+
+const minZoom = (page, id) => page.evaluate(
+  (layerId) => window.mapper.map.getStyle().layers.find((l) => l.id === layerId).minzoom, id)
+
+test('stored tweaks are applied to the startup style', async ({ page }) => {
+  await open(page)
+  await page.evaluate(() => {
+    localStorage.setItem('mapper.tweaks', JSON.stringify({ textScale: 1.5, buildingMinZoom: 15 }))
+  })
+  await page.reload()
+  await page.waitForFunction(() => window.mapper && window.mapper.map.loaded())
+  expect(await textSize(page, 'place-label')).toBe(18)
+  expect(await minZoom(page, 'building')).toBe(15)
+})

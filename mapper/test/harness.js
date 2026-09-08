@@ -28,18 +28,44 @@ export const STYLE_COLORS = {
   fiord: '#4a5568',
 }
 
+// The symbol layers sit on an empty inline GeoJSON source and carry no
+// text-field, so neither tiles nor glyphs are ever fetched for them. The
+// building layer needs a vector source to carry a source-layer; its tiles are
+// declared inline so no TileJSON is fetched, and at the default view its
+// minzoom keeps the source from being asked for anything.
 export function styleFor(id) {
   return {
     version: 8,
     name: id,
-    sources: {},
-    layers: [{ id: 'bg', type: 'background', paint: { 'background-color': STYLE_COLORS[id] || '#cfe8cf' } }],
+    sources: {
+      empty: { type: 'geojson', data: { type: 'FeatureCollection', features: [] } },
+      vector: { type: 'vector', tiles: ['https://tiles.openfreemap.org/data/{z}/{x}/{y}.pbf'] },
+    },
+    layers: [
+      { id: 'bg', type: 'background', paint: { 'background-color': STYLE_COLORS[id] || '#cfe8cf' } },
+      { id: 'place-label', type: 'symbol', source: 'empty', layout: { 'text-size': 12 } },
+      {
+        id: 'poi-label',
+        type: 'symbol',
+        source: 'empty',
+        layout: { 'text-size': ['interpolate', ['linear'], ['zoom'], 10, 10, 16, 20] },
+      },
+      {
+        id: 'building',
+        type: 'fill',
+        source: 'vector',
+        'source-layer': 'building',
+        minzoom: 13,
+        paint: { 'fill-color': '#ddd' },
+      },
+    ],
   }
 }
 
 export const STYLE = styleFor('liberty')
 
 export async function routeStyle(page) {
+  await page.route('**/tiles.openfreemap.org/data/**', (r) => r.abort('failed'))
   await page.route('**/tiles.openfreemap.org/**', (r) => {
     const id = new URL(r.request().url()).pathname.split('/').pop()
     const body = STYLE_COLORS[id] ? styleFor(id) : STYLE
