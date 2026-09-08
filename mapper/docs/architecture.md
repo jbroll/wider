@@ -44,6 +44,11 @@ data, or a quota error) yields a no-op store instead of crashing the page;
 `window.mapper.map` exposes the MapLibre map instance for the Playwright
 specs and for poking at from a browser console.
 
+Each saved place gets a MapLibre `Marker` DOM overlay, not a style layer, so
+it survives a style switch without being re-added. `places.jsx` reconciles
+the marker set against the `places` signal inside an `effect`, keyed by
+place id so an unrelated signal update touches no marker.
+
 `src/styles.js` holds the style table and the stored-id validation, pure
 and store-argument-taking like `view.js` and `places.js`. `src/styles.jsx`
 is a MapLibre custom control: MapLibre decides where it sits in the

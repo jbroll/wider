@@ -1,4 +1,4 @@
-import { signal } from '@preact/signals'
+import { signal, effect } from '@preact/signals'
 import maplibregl from 'maplibre-gl'
 
 import { loadPlaces, savePlaces, addPlace, removePlace, newId } from './places.js'
@@ -17,6 +17,23 @@ function discard() {
   pending.value = null
 }
 
+function goTo(map, p) {
+  map.flyTo({ center: [p.lon, p.lat], zoom: p.zoom, bearing: p.bearing })
+}
+
+function placeMarker(map, p) {
+  const el = document.createElement('div')
+  el.className = 'place-marker'
+  el.textContent = p.name
+  el.addEventListener('click', (e) => {
+    e.stopPropagation()
+    goTo(map, p)
+  })
+  return new maplibregl.Marker({ element: el }).setLngLat([p.lon, p.lat]).addTo(map)
+}
+
+// Keyed by place id so a re-run over an unchanged list touches no marker,
+// which is what keeps this from double-adding on re-entry.
 export function attach(map) {
   map.on('contextmenu', (e) => {
     discard()
@@ -31,6 +48,20 @@ export function attach(map) {
     }
     open.value = true
   })
+
+  const markers = new Map()
+  effect(() => {
+    const ids = new Set(places.value.map((p) => p.id))
+    for (const [id, marker] of markers) {
+      if (!ids.has(id)) {
+        marker.remove()
+        markers.delete(id)
+      }
+    }
+    for (const p of places.value) {
+      if (!markers.has(p.id)) markers.set(p.id, placeMarker(map, p))
+    }
+  })
 }
 
 export function Places({ map }) {
@@ -44,7 +75,7 @@ export function Places({ map }) {
     }))
   }
 
-  const go = (p) => map.flyTo({ center: [p.lon, p.lat], zoom: p.zoom, bearing: p.bearing })
+  const go = (p) => goTo(map, p)
 
   return (
     <div id="places">

@@ -69,10 +69,11 @@ that group on the style's own colors without disturbing the other three.
 Right-click the map to drop a pin and open a name field. Press Enter to
 save it, Escape to discard the pin without saving.
 
-Saved places appear in the panel at the top-left. Clicking a place's name
-flies the map back to its saved center, zoom, and bearing. The `×` button
-next to a place deletes it. The list is stored in `localStorage` under
-`mapper.places`.
+Saved places appear in the panel at the top-left, and each also gets a
+marker on the map showing its name. Clicking a place's name in the panel,
+or its marker, flies the map back to its saved center, zoom, and bearing.
+The `×` button next to a place deletes it and removes its marker. The list
+is stored in `localStorage` under `mapper.places`.
 
 The panel header (`Places (N)`) is a toggle: click it to collapse or
 expand the list.

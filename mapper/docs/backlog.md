@@ -1,12 +1,5 @@
 # Backlog
 
-- A persistent named marker on the map for each saved place. Saving currently
-  removes the pending pin and leaves only a list entry, so a place you care
-  about is invisible on the map. Markers are DOM overlays rather than style
-  layers, so they survive a style switch. This is also the answer to wanting one
-  minor POI visible below the zoom its style layer draws it at: the tiles gate
-  `poi` to zoom 11 and up and thin minor features as they zoom out, so no style
-  change can reliably surface a specific POI, but your own marker always shows.
 - Offline tiles and tile caching.
 - Geocoding search.
 - Reading the wider slot configuration.

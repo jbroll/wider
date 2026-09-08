@@ -107,6 +107,58 @@ test('deleting a place removes it from the panel and storage', async ({ page }) 
   expect(stored).not.toContain('a1')
 })
 
+test('a named place gets a marker showing its name', async ({ page }) => {
+  await open(page)
+  const box = await page.locator('#map canvas').boundingBox()
+  await page.mouse.click(box.width / 2, box.height / 2, { button: 'right' })
+  await expect(page.locator('#pin-name')).toBeVisible()
+  await page.fill('#pin-name', 'Middle')
+  await page.press('#pin-name', 'Enter')
+  await expect(page.locator('.place-marker')).toHaveText('Middle')
+})
+
+test('deleting a place removes its marker', async ({ page }) => {
+  await open(page)
+  await page.evaluate(() => {
+    localStorage.setItem('mapper.places', JSON.stringify(
+      [{ id: 'a1', name: 'Paris', lat: 48.8566, lon: 2.3522, zoom: 12, bearing: 0 }]))
+  })
+  await page.reload()
+  await page.waitForFunction(() => window.mapper && window.mapper.map.loaded())
+  await expect(page.locator('.place-marker')).toHaveCount(1)
+  await page.click('.place-del')
+  await expect(page.locator('.place-marker')).toHaveCount(0)
+})
+
+test('a place marker survives a style switch', async ({ page }) => {
+  await open(page)
+  await page.evaluate(() => {
+    localStorage.setItem('mapper.places', JSON.stringify(
+      [{ id: 'a1', name: 'Paris', lat: 48.8566, lon: 2.3522, zoom: 12, bearing: 0 }]))
+  })
+  await page.reload()
+  await page.waitForFunction(() => window.mapper && window.mapper.map.loaded())
+  await page.click('#styles .style-button[data-style="dark"]')
+  await expect.poll(() => page.evaluate(() => window.mapper.map.getStyle().name)).toBe('dark')
+  await expect(page.locator('.place-marker')).toHaveCount(1)
+  await expect(page.locator('.place-marker')).toHaveText('Paris')
+})
+
+test('clicking a place marker moves the map', async ({ page }) => {
+  await open(page)
+  await page.evaluate(() => {
+    localStorage.setItem('mapper.places', JSON.stringify(
+      [{ id: 'a1', name: 'Paris', lat: 48.8566, lon: 2.3522, zoom: 12, bearing: 0 }]))
+  })
+  await page.reload()
+  await page.waitForFunction(() => window.mapper && window.mapper.map.loaded())
+  await page.click('.place-marker')
+  await expect.poll(() => center(page).then(([lon]) => Math.round(lon))).toBe(2)
+  const [lon, lat] = await center(page)
+  expect(lat).toBeCloseTo(48.8566, 1)
+  expect(lon).toBeCloseTo(2.3522, 1)
+})
+
 test('a reload restores the last view', async ({ page }) => {
   await open(page)
   await page.evaluate(() => window.mapper.map.jumpTo({ center: [2.3522, 48.8566], zoom: 12 }))
@@ -218,7 +270,9 @@ test('the view, a saved place and a pending pin survive a switch', async ({ page
   expect(await page.evaluate(() => window.mapper.map.getZoom())).toBeCloseTo(12, 2)
   await expect(page.locator('#places-list .place-name')).toHaveText(['Paris'])
   await expect(page.locator('#pin-name')).toHaveValue('Half typed')
-  await expect(page.locator('.maplibregl-marker')).toHaveCount(1)
+  // One marker for the pending pin, one for the saved place.
+  await expect(page.locator('.maplibregl-marker')).toHaveCount(2)
+  await expect(page.locator('.place-marker')).toHaveText('Paris')
 })
 
 test('a later click wins over a slower in-flight switch', async ({ page }) => {
