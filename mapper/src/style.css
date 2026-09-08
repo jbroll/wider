@@ -1,0 +1,100 @@
+@import "maplibre-gl/dist/maplibre-gl.css";
+
+html, body {
+  margin: 0;
+  height: 100%;
+  overflow: hidden;
+  background: #1c1c1c;
+  color: #eee;
+  font: 13px system-ui, sans-serif;
+}
+
+#map {
+  position: absolute;
+  inset: 0;
+}
+
+#map:not(.maplibregl-map) {
+  padding: 1rem;
+}
+
+#panel {
+  position: absolute;
+  top: 10px;
+  left: 10px;
+  z-index: 1;
+}
+
+#places {
+  background: rgba(255, 255, 255, 0.93);
+  color: #111;
+  border-radius: 4px;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.4);
+  min-width: 12rem;
+  max-width: 16rem;
+}
+
+#places-toggle {
+  display: block;
+  width: 100%;
+  padding: 6px 10px;
+  border: 0;
+  background: none;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+#places-body {
+  padding: 0 6px 6px;
+}
+
+#pin-name {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 4px;
+  font: inherit;
+}
+
+#places-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  max-height: 50vh;
+  overflow-y: auto;
+}
+
+.place {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.place-name {
+  flex: 1;
+  padding: 4px;
+  border: 0;
+  background: none;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.place-name:hover {
+  background: rgba(0, 0, 0, 0.07);
+}
+
+.place-del {
+  border: 0;
+  background: none;
+  color: #777;
+  font: inherit;
+  cursor: pointer;
+}
+
+.place-del:hover {
+  color: #b00;
+}
