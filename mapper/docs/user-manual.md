@@ -33,8 +33,11 @@ Below the style buttons, two steppers adjust how the chosen style draws:
 - **Text** scales every label in the style, from 100% to 150% in ten-point
   steps.
 - **Buildings** sets the zoom below which buildings are not drawn: 13, 14, 15,
-  or 16. Buildings only exist in the tiles from zoom 13, so 13 is the default
-  and draws them as early as the data allows.
+  16, or Off. Buildings only exist in the tiles from zoom 13, so 13 is the
+  default and draws them as early as the data allows. Off removes the
+  building layers from the style outright; the tiles carry no building data
+  past zoom 14, so raising the floor further would only mask that data
+  instead of removing it.
 
 Both settings apply to whichever style is showing and are saved to
 `localStorage` under `mapper.tweaks`. A missing or unrecognised value falls

@@ -56,9 +56,18 @@ const layer = (style, id) => style.layers.find((l) => l.id === id)
 
 test('the notches and defaults are the listed ones', () => {
   assert.deepEqual(TEXT_SCALES, [1, 1.1, 1.2, 1.3, 1.4, 1.5])
-  assert.deepEqual(BUILDING_ZOOMS, [13, 14, 15, 16])
+  assert.deepEqual(BUILDING_ZOOMS, [13, 14, 15, 16, null])
   assert.deepEqual(DEFAULT_TWEAKS, { textScale: 1, buildingMinZoom: 13 })
   assert.deepEqual(validateTweaks(DEFAULT_TWEAKS), DEFAULT_TWEAKS)
+})
+
+test('a null buildingMinZoom (Off) validates and round-trips through the store and JSON', () => {
+  const off = { textScale: 1, buildingMinZoom: null }
+  assert.deepEqual(validateTweaks(off), off)
+  const store = fakeStore()
+  assert.deepEqual(saveTweaks(store, off), off)
+  assert.deepEqual(loadTweaks(store), off)
+  assert.deepEqual(parseTweaks(JSON.stringify(off)), off)
 })
 
 test('a saved tweaks value round-trips', () => {
@@ -131,8 +140,20 @@ test('a building layer whose maxzoom is at or below the floor is dropped', () =>
   assert.equal(layer(at, 'building'), undefined)
 })
 
+test('a null floor (Off) drops every building layer', () => {
+  const out = applyTweaks(stub(), { textScale: 1, buildingMinZoom: null })
+  assert.equal(layer(out, 'building'), undefined)
+  assert.equal(layer(out, 'building-3d'), undefined)
+  assert.equal(layer(out, 'building-label'), undefined)
+})
+
 test('a non-building layer is untouched by the floor', () => {
   const out = applyTweaks(stub(), { textScale: 1, buildingMinZoom: 16 })
+  assert.deepEqual(layer(out, 'road'), layer(stub(), 'road'))
+})
+
+test('a non-building layer is untouched when the floor is Off', () => {
+  const out = applyTweaks(stub(), { textScale: 1, buildingMinZoom: null })
   assert.deepEqual(layer(out, 'road'), layer(stub(), 'road'))
 })
 

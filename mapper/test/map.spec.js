@@ -286,6 +286,9 @@ const textSize = (page, id) => page.evaluate(
 const minZoom = (page, id) => page.evaluate(
   (layerId) => window.mapper.map.getStyle().layers.find((l) => l.id === layerId).minzoom, id)
 
+const hasLayer = (page, id) => page.evaluate(
+  (layerId) => window.mapper.map.getStyle().layers.some((l) => l.id === layerId), id)
+
 test('stored tweaks are applied to the startup style', async ({ page }) => {
   await open(page)
   await page.evaluate(() => {
@@ -347,8 +350,16 @@ test('the steppers disable at the ends of their ranges', async ({ page }) => {
   await expect(page.locator(reading('text'))).toHaveText('150%')
   await expect(page.locator(up('text'))).toBeDisabled()
   await expect(page.locator(down('text'))).toBeEnabled()
-  for (let i = 0; i < 3; i += 1) await page.click(up('buildings'))
-  await expect(page.locator(reading('buildings'))).toHaveText('16')
+  for (let i = 0; i < 4; i += 1) await page.click(up('buildings'))
+  await expect(page.locator(reading('buildings'))).toHaveText('Off')
+  await expect(page.locator(up('buildings'))).toBeDisabled()
+})
+
+test('stepping Buildings to Off removes the building layer', async ({ page }) => {
+  await open(page)
+  for (let i = 0; i < 4; i += 1) await page.click(up('buildings'))
+  await expect(page.locator(reading('buildings'))).toHaveText('Off')
+  await expect.poll(() => hasLayer(page, 'building')).toBe(false)
   await expect(page.locator(up('buildings'))).toBeDisabled()
 })
 

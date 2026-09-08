@@ -51,7 +51,7 @@ export function Steppers({ onChange }) {
         label="Buildings"
         notches={BUILDING_ZOOMS}
         value={t.buildingMinZoom}
-        text={String(t.buildingMinZoom)}
+        text={t.buildingMinZoom === null ? 'Off' : String(t.buildingMinZoom)}
         less="Buildings from further out"
         more="Buildings only closer in"
         pick={(v) => onChange({ ...t, buildingMinZoom: v })}

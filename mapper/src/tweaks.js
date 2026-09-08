@@ -1,7 +1,7 @@
 export const TWEAKS_KEY = 'mapper.tweaks'
 
 export const TEXT_SCALES = [1, 1.1, 1.2, 1.3, 1.4, 1.5]
-export const BUILDING_ZOOMS = [13, 14, 15, 16]
+export const BUILDING_ZOOMS = [13, 14, 15, 16, null]
 
 export const DEFAULT_TWEAKS = { textScale: TEXT_SCALES[0], buildingMinZoom: BUILDING_ZOOMS[0] }
 
@@ -67,6 +67,7 @@ export function applyTweaks(style, tweaks) {
       layers.push(scaleLayer(layer, textScale))
       continue
     }
+    if (buildingMinZoom === null) continue
     if (typeof layer.maxzoom === 'number' && layer.maxzoom <= buildingMinZoom) continue
     const scaled = scaleLayer(layer, textScale)
     const minzoom = Math.max(buildingMinZoom, typeof scaled.minzoom === 'number' ? scaled.minzoom : 0)
