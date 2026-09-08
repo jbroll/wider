@@ -1,6 +1,7 @@
 import { createMap } from './map.js'
 import { loadView, saveView } from './view.js'
 import { loadStyle, styleUrl } from './styles.js'
+import { addStyleControl } from './styles.jsx'
 import { render } from 'preact'
 import { Places, attach } from './places.jsx'
 import { store } from './store.js'
@@ -45,6 +46,7 @@ function start() {
   })
 
   attach(map)
+  addStyleControl(map, store)
   render(<Places map={map} />, document.getElementById('panel'))
 
   window.mapper = { map }

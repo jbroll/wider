@@ -98,3 +98,43 @@ html, body {
 .place-del:hover {
   color: #b00;
 }
+
+#styles {
+  clear: both;
+}
+
+#styles .style-button {
+  display: block;
+  width: auto;
+  min-width: 5.5rem;
+  height: auto;
+  padding: 4px 8px;
+  border: 0;
+  background: none;
+  color: #111;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+#styles .style-button:hover {
+  background: rgba(0, 0, 0, 0.07);
+}
+
+#styles .style-button.current {
+  font-weight: 600;
+  background: rgba(0, 0, 0, 0.12);
+}
+
+#toast {
+  position: absolute;
+  bottom: 24px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 2;
+  padding: 6px 12px;
+  border-radius: 4px;
+  background: rgba(0, 0, 0, 0.82);
+  color: #fff;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.4);
+}
