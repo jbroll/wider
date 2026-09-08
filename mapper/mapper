@@ -14,7 +14,7 @@ SERVER=$!
 trap 'kill "$SERVER" 2>/dev/null || true; rm -f "$FIFO"' EXIT INT TERM
 PORT=$(head -n 1 "$FIFO")
 rm -f "$FIFO"
-[ -n "$PORT" ] || { echo "mapper: no port from serve.js - mapper may already be running, or something else holds the port; set MAPPER_PORT to use a different one" >&2; exit 1; }
+[ -n "$PORT" ] || { echo "mapper: serve.js exited without reporting a port (see its output above); most likely another mapper instance already holds the port - set MAPPER_PORT to use a different one" >&2; exit 1; }
 
 chromium --app="http://127.0.0.1:$PORT" \
          --class=Mapper \

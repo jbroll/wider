@@ -123,3 +123,33 @@ test('the panel collapses and expands', async ({ page }) => {
   await page.click('#places-toggle')
   await expect(page.locator('#places-body')).toBeVisible()
 })
+
+test('a style load failure shows the failure message', async ({ page }) => {
+  await page.route('**/tiles.openfreemap.org/**', (r) => r.fulfill({ status: 500 }))
+  await page.goto(server.url)
+  await expect(page.locator('#map')).toHaveText(/style failed to load/)
+})
+
+test('a failed tile leaves a drawn map in place', async ({ page }) => {
+  const style = {
+    version: 8,
+    name: 'test-with-source',
+    sources: {
+      raster: {
+        type: 'raster',
+        tiles: ['https://tiles.openfreemap.org/data/{z}/{x}/{y}.png'],
+        tileSize: 256,
+      },
+    },
+    layers: [{ id: 'bg', type: 'raster', source: 'raster' }],
+  }
+  await page.route('**/tiles.openfreemap.org/styles/**', (r) =>
+    r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(style) }))
+  await page.route('**/tiles.openfreemap.org/data/**', (r) => r.abort('failed'))
+  const tileFailed = page.waitForEvent('requestfailed', (req) => req.url().includes('/data/'))
+  await page.goto(server.url)
+  await expect(page.locator('#map canvas')).toBeVisible()
+  await tileFailed
+  await expect(page.locator('#map canvas')).toBeVisible()
+  await expect(page.locator('#map')).not.toHaveText(/style failed to load/)
+})

@@ -76,6 +76,7 @@ function nonInternalIPv4() {
 test('the server exits nonzero with a message when the port is taken', async () => {
   const port = await freePort()
   const holder = net.createServer()
+  holder.on('error', (err) => assert.fail(`holder server: ${err}`))
   await new Promise((resolve) => holder.listen(port, '127.0.0.1', resolve))
   try {
     execFileSync('node', [path.join(ROOT, 'build.js')], { stdio: 'ignore' })
@@ -94,6 +95,7 @@ test('the server exits nonzero with a message when the port is taken', async () 
 test('the launcher exits nonzero and never opens Chromium when its port is busy', async () => {
   const port = await freePort()
   const holder = net.createServer()
+  holder.on('error', (err) => assert.fail(`holder server: ${err}`))
   await new Promise((resolve) => holder.listen(port, '127.0.0.1', resolve))
 
   // A fake chromium ahead of the real one on PATH: if the launcher ever runs

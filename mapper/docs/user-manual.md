@@ -33,3 +33,7 @@ expand the list.
 If the browser cannot create a WebGL context, the map area shows one line
 of text, "This window cannot draw the map: WebGL is unavailable," instead
 of a map.
+
+If the map style itself fails to load, the map area instead shows "This
+window cannot draw the map: the map style failed to load." A single failed
+tile during panning or zooming does not trigger this; the map keeps working.

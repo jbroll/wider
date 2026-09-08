@@ -21,7 +21,13 @@ function start() {
   }
 
   map.on('error', (e) => {
-    if (map.isStyleLoaded()) return
+    // A tile error carries `tile`/`sourceId` (maplibre-gl tile/tile_manager.ts:197);
+    // a style-load failure fires a bare ErrorEvent (maplibre-gl style/style.ts:449).
+    // isStyleLoaded() can't tell these apart: it's false during any in-flight tile.
+    if (e.tile || e.sourceId) {
+      console.error(e.error)
+      return
+    }
     container.textContent = LOAD_FAILED
     console.error(e.error)
   })
