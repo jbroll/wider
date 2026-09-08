@@ -280,3 +280,69 @@ test('stored tweaks are applied to the startup style', async ({ page }) => {
   expect(await textSize(page, 'place-label')).toBe(18)
   expect(await minZoom(page, 'building')).toBe(15)
 })
+
+const down = (id) => '#styles .tweak-down[data-tweak="' + id + '"]'
+const up = (id) => '#styles .tweak-up[data-tweak="' + id + '"]'
+const reading = (id) => '#styles .tweak-value[data-tweak="' + id + '"]'
+
+test('stepping Text up scales the labels and fetches no style', async ({ page }) => {
+  await open(page)
+  let styleRequests = 0
+  page.on('request', (r) => { if (r.url().includes('/styles/')) styleRequests += 1 })
+  await page.click(up('text'))
+  await expect(page.locator(reading('text'))).toHaveText('110%')
+  await expect.poll(() => textSize(page, 'place-label')).toBeCloseTo(13.2, 5)
+  // 10 * 1.1 is 11.000000000000002, so compare the stops element by element.
+  const interp = await textSize(page, 'poi-label')
+  expect(interp.slice(0, 3)).toEqual(['interpolate', ['linear'], ['zoom']])
+  expect(interp[3]).toBe(10)
+  expect(interp[4]).toBeCloseTo(11, 5)
+  expect(interp[5]).toBe(16)
+  expect(interp[6]).toBeCloseTo(22, 5)
+  expect(styleRequests).toBe(0)
+})
+
+test('stepping Buildings up raises the building layer minzoom', async ({ page }) => {
+  await open(page)
+  await page.click(up('buildings'))
+  await expect(page.locator(reading('buildings'))).toHaveText('14')
+  await expect.poll(() => minZoom(page, 'building')).toBe(14)
+})
+
+test('both steppers survive a reload', async ({ page }) => {
+  await open(page)
+  await page.click(up('text'))
+  await page.click(up('buildings'))
+  await expect.poll(() => page.evaluate(() => localStorage.getItem('mapper.tweaks')))
+    .toContain('1.1')
+  await page.reload()
+  await page.waitForFunction(() => window.mapper && window.mapper.map.loaded())
+  await expect(page.locator(reading('text'))).toHaveText('110%')
+  await expect(page.locator(reading('buildings'))).toHaveText('14')
+  expect(await minZoom(page, 'building')).toBe(14)
+})
+
+test('the steppers disable at the ends of their ranges', async ({ page }) => {
+  await open(page)
+  await expect(page.locator(down('text'))).toBeDisabled()
+  await expect(page.locator(down('buildings'))).toBeDisabled()
+  await expect(page.locator(up('text'))).toBeEnabled()
+  for (let i = 0; i < 5; i += 1) await page.click(up('text'))
+  await expect(page.locator(reading('text'))).toHaveText('150%')
+  await expect(page.locator(up('text'))).toBeDisabled()
+  await expect(page.locator(down('text'))).toBeEnabled()
+  for (let i = 0; i < 3; i += 1) await page.click(up('buildings'))
+  await expect(page.locator(reading('buildings'))).toHaveText('16')
+  await expect(page.locator(up('buildings'))).toBeDisabled()
+})
+
+test('switching style keeps the current tweaks applied', async ({ page }) => {
+  await open(page)
+  await page.click(up('text'))
+  await page.click(up('buildings'))
+  await page.click('#styles .style-button[data-style="dark"]')
+  await expect.poll(() => styleName(page)).toBe('dark')
+  await expect.poll(() => textSize(page, 'place-label')).toBeCloseTo(13.2, 5)
+  expect(await minZoom(page, 'building')).toBe(14)
+  await expect(page.locator(reading('text'))).toHaveText('110%')
+})

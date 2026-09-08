@@ -2,8 +2,8 @@ import { render } from 'preact'
 import { signal } from '@preact/signals'
 
 import { STYLES, DEFAULT_STYLE_ID, loadStyle, saveStyle, styleUrl } from './styles.js'
-import { loadTweaks, applyTweaks } from './tweaks.js'
-import { tweaks } from './tweaks.jsx'
+import { loadTweaks, saveTweaks, applyTweaks } from './tweaks.js'
+import { tweaks, Steppers } from './tweaks.jsx'
 
 const TOAST_MS = 4000
 
@@ -89,12 +89,26 @@ export function addStyleControl(map, store, style) {
   document.body.appendChild(host)
   render(<Toast />, host)
 
+  const change = (next) => {
+    const clean = saveTweaks(store, next)
+    if (!clean) return
+    tweaks.value = clean
+    if (fetched) map.setStyle(applyTweaks(fetched, clean))
+  }
+
   map.addControl({
     onAdd() {
       const el = document.createElement('div')
       el.id = 'styles'
       el.className = 'maplibregl-ctrl maplibregl-ctrl-group'
-      render(<Buttons map={map} store={store} />, el)
+      render(
+        <>
+          <Buttons map={map} store={store} />
+          <div class="tweak-divider" />
+          <Steppers onChange={change} />
+        </>,
+        el,
+      )
       return el
     },
     onRemove() {},
