@@ -16,3 +16,9 @@
   ignores it, leaving a blank map and a message only in the console. The Liberty
   style loads its vector source by TileJSON `url`, so this is the likeliest way
   to get a blank map with no explanation.
+- Route a switch-time style-load failure to the toast instead of the blank-map
+  message. A style that fetches successfully but fails to apply - an invalid
+  body, or a failed sprite fetch - emits a bare error with no `tile` and no
+  `sourceId`, so `main.jsx` classifies it as a style-load failure and blanks
+  `#map`, taking the style control down with it. Fixing that means teaching
+  the error handler which failures belong to a switch.

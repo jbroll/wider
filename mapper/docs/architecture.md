@@ -30,9 +30,9 @@ that one file.
 
 ## UI
 
-MapLibre owns the map canvas directly (`src/map.js`). Preact renders only
-the places panel (`src/places.jsx`), which is why `map.js` is a plain
-function rather than a component.
+MapLibre owns the map canvas directly (`src/map.js`), which is why `map.js`
+is a plain function rather than a component. Preact renders the places
+panel (`src/places.jsx`) and the style control and toast (`src/styles.jsx`).
 
 `src/view.js` and `src/places.js` take a `localStorage`-shaped store as an
 argument instead of reading the global directly. That is what lets them
@@ -53,8 +53,14 @@ the buttons into the element `onAdd` returns.
 A switch fetches the style JSON and only then calls `map.setStyle` with the
 parsed object. A failed fetch never reaches `setStyle`, so the running map
 stays up and the stored id and the marked button stay on the style that is
-actually drawn. Startup still passes MapLibre a style URL, which keeps a
-launch-time failure on the existing `map.on('error')` path.
+actually drawn. The switch does not count as done at `setStyle` either: it
+waits for MapLibre's `styledata` event, so persisting the id and moving the
+marked button both wait for a real load confirmation. Startup still passes
+MapLibre a style URL, which keeps a launch-time failure on the existing
+`map.on('error')` path.
+
+The toast host is appended to `document.body`, not into `#map`, so it
+survives `#map` being blanked by the style-load failure message.
 
 ## Why openfreemap
 

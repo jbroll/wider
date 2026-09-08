@@ -99,10 +99,6 @@ html, body {
   color: #b00;
 }
 
-#styles {
-  clear: both;
-}
-
 #styles .style-button {
   display: block;
   width: auto;
