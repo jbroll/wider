@@ -24,10 +24,16 @@
   the error handler which failures belong to a switch. A failed sprite fetch
   is worse than a blank map with no explanation: MapLibre fires styledata for
   it anyway (from the same chain's `.finally`), so `switchStyle` persists the
-  id and moves the marked button before the error handler blanks `#map` -
-  `styledata` is not the event that would prevent that, since it fires
-  whether or not the sprite fetch succeeded.
+  id and moves the marked button a tick after the error handler has already
+  blanked `#map` - `styledata` is not the event that would prevent that, since
+  it fires whether or not the sprite fetch succeeded.
 - A switch whose `setStyle` produces no styledata - an invalid style, or a
   diff that yields no operations - leaves `switchStyle`'s wait pending and
   its `map.once('styledata')` listener registered forever. The button and the
   stored id are silently left on whatever style was current before the click.
+- Close the frame between `setStyle` and the styledata that moves the marked
+  button. A click on the current style landing in that window takes
+  `switchStyle`'s early return, does no `setStyle` of its own, and cancels the
+  pending persist, leaving the new style drawn with the old button marked and
+  the old id stored. It is about one frame wide and it is the one case where
+  the control does not show the style that is actually displayed.

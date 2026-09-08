@@ -59,12 +59,14 @@ confirmation - it is the "style changed" tick MapLibre fires once
 `Style.setState` accepts the body, on the next render frame. What the wait
 actually buys is narrower: a style body MapLibre rejects as invalid never
 fires styledata, so it never gets persisted and never moves the marked
-button. Startup still passes
-MapLibre a style URL, which keeps a launch-time failure on the existing
-`map.on('error')` path.
+button. Startup still passes MapLibre a style URL, which keeps a launch-time
+failure on the existing `map.on('error')` path.
 
 The toast host is appended to `document.body`, not into `#map`, so it
-survives `#map` being blanked by the style-load failure message.
+survives `#map` being blanked by the style-load failure message. `#toast` is
+always in the document and carries `hidden` when there is no message, so its
+`aria-live` region exists before the text lands in it. A test asserting the
+toast is absent wants `toBeHidden()`, not `toHaveCount(0)`.
 
 ## Why openfreemap
 
