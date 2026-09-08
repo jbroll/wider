@@ -1,5 +1,6 @@
 import { createMap } from './map.js'
 import { loadView, saveView } from './view.js'
+import { loadStyle, styleUrl } from './styles.js'
 import { render } from 'preact'
 import { Places, attach } from './places.jsx'
 import { store } from './store.js'
@@ -13,7 +14,7 @@ function start() {
   const container = document.getElementById('map')
   let map
   try {
-    map = createMap(container, loadView(store))
+    map = createMap(container, loadView(store), styleUrl(loadStyle(store)))
   } catch (err) {
     container.textContent = NO_WEBGL
     console.error(err)

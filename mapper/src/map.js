@@ -1,11 +1,9 @@
 import maplibregl from 'maplibre-gl'
 
-export const STYLE_URL = 'https://tiles.openfreemap.org/styles/liberty'
-
-export function createMap(container, view) {
+export function createMap(container, view, style) {
   const map = new maplibregl.Map({
     container,
-    style: STYLE_URL,
+    style,
     center: view.center,
     zoom: view.zoom,
     bearing: view.bearing,
