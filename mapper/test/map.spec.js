@@ -1,5 +1,5 @@
 import { test, expect } from './pw.js'
-import { startPage, routeStyle } from './harness.js'
+import { startPage, routeStyle, styleFor } from './harness.js'
 
 let server
 
@@ -176,7 +176,7 @@ test('a reload comes back on the chosen style', async ({ page }) => {
   await expect(page.locator('#styles .style-button.current')).toHaveAttribute('data-style', 'fiord')
 })
 
-test('the view and a saved place survive a switch', async ({ page }) => {
+test('the view, a saved place and a pending pin survive a switch', async ({ page }) => {
   await open(page)
   await page.evaluate(() => {
     localStorage.setItem('mapper.places', JSON.stringify(
@@ -185,6 +185,10 @@ test('the view and a saved place survive a switch', async ({ page }) => {
   await page.reload()
   await page.waitForFunction(() => window.mapper && window.mapper.map.loaded())
   await page.evaluate(() => window.mapper.map.jumpTo({ center: [2.3522, 48.8566], zoom: 12 }))
+  const box = await page.locator('#map canvas').boundingBox()
+  await page.mouse.click(box.width / 3, box.height / 3, { button: 'right' })
+  await expect(page.locator('#pin-name')).toBeVisible()
+  await page.fill('#pin-name', 'Half typed')
   await page.click('#styles .style-button[data-style="positron"]')
   await expect.poll(() => styleName(page)).toBe('positron')
   const [lon, lat] = await center(page)
@@ -192,6 +196,32 @@ test('the view and a saved place survive a switch', async ({ page }) => {
   expect(lat).toBeCloseTo(48.8566, 2)
   expect(await page.evaluate(() => window.mapper.map.getZoom())).toBeCloseTo(12, 2)
   await expect(page.locator('#places-list .place-name')).toHaveText(['Paris'])
+  await expect(page.locator('#pin-name')).toHaveValue('Half typed')
+  await expect(page.locator('.maplibregl-marker')).toHaveCount(1)
+})
+
+test('a later click wins over a slower in-flight switch', async ({ page }) => {
+  await open(page)
+  let releaseDark
+  const held = new Promise((resolve) => { releaseDark = resolve })
+  await page.route('**/tiles.openfreemap.org/styles/dark', async (r) => {
+    await held
+    return r.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify(styleFor('dark')),
+    })
+  })
+  await page.click('#styles .style-button[data-style="dark"]')
+  await page.click('#styles .style-button[data-style="fiord"]')
+  await expect.poll(() => styleName(page)).toBe('fiord')
+  const darkResponded = page.waitForResponse('**/tiles.openfreemap.org/styles/dark')
+  releaseDark()
+  await darkResponded
+  await page.waitForTimeout(200)
+  expect(await styleName(page)).toBe('fiord')
+  await expect(page.locator('#styles .style-button.current')).toHaveAttribute('data-style', 'fiord')
+  expect(await page.evaluate(() => localStorage.getItem('mapper.style'))).toBe('fiord')
 })
 
 test('a failed style request keeps the current style and shows a toast', async ({ page }) => {
@@ -199,7 +229,7 @@ test('a failed style request keeps the current style and shows a toast', async (
   // Registered after routeStyle, so it wins for this one path.
   await page.route('**/tiles.openfreemap.org/styles/dark', (r) => r.fulfill({ status: 500 }))
   await page.click('#styles .style-button[data-style="dark"]')
-  await expect(page.locator('#toast')).toHaveText(/dark/)
+  await expect(page.locator('#toast')).toHaveText(/dark/i)
   expect(await styleName(page)).toBe('liberty')
   await expect(page.locator('#styles .style-button.current')).toHaveAttribute('data-style', 'liberty')
   expect(await page.evaluate(() => localStorage.getItem('mapper.style'))).toBe(null)
