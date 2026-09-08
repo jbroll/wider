@@ -1,8 +1,7 @@
 export const COLORS_KEY = 'mapper.colors'
 
 // Airport names sit with the POIs and river names with the water because that
-// is how the styles color them: Liberty gives aerodrome_label the same #666 as
-// its poi layers, and waterway the #74aee9 beside water_name's #495e91.
+// is how the styles already color them.
 export const GROUPS = [
   { id: 'places', label: 'Places', sourceLayers: ['place'] },
   { id: 'streets', label: 'Streets', sourceLayers: ['transportation_name'] },
@@ -64,21 +63,16 @@ export function haloFor(hex) {
   return luminance(hex) < 0.5 ? '#ffffff' : '#000000'
 }
 
-// MapLibre's default halo width is 0, so a halo color set on a layer that
-// declares no width would be invisible. An existing width is left alone: the
-// styles' 0.5 to 2 is what separates a country name from a town name.
+// MapLibre's default halo width is 0, so a halo color on a layer that declares
+// no width would be invisible. An existing width carries the style's meaning.
 function recolor(layer, color) {
   const paint = { ...layer.paint, 'text-color': color, 'text-halo-color': haloFor(color) }
   if (paint['text-halo-width'] === undefined) paint['text-halo-width'] = 1
   return { ...layer, paint }
 }
 
-// Returns a new style, like applyTweaks: mapper re-transforms the style it
-// holds as fetched on every change.
-//
-// A symbol layer with no text-color draws no text of its own, which is what
-// excludes the route shields - their number is on a sprite badge - with no
-// special case for them.
+// Returns a new style, like applyTweaks. A symbol layer with no text-color
+// draws no text of its own, which is what excludes the route shields.
 export function applyColors(style, colors) {
   const clean = validateColors(colors)
   if (!style || !Array.isArray(style.layers)) return style
