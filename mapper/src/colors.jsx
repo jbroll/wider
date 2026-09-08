@@ -48,12 +48,14 @@ export function seedColors(style) {
 
 // <input type="color"> sanitizes anything but #rrggbb to black; expand the
 // #rgb shorthand the store also accepts so a stored value still displays.
-function forSwatch(hex) {
+export function forSwatch(hex) {
   return hex.length === 4 ? '#' + hex[1] + hex[1] + hex[2] + hex[2] + hex[3] + hex[3] : hex
 }
 
 // onPreview runs at pointer rate while the dialog is open: signal only, no
 // persistence. onCommit runs once, on change or on the clear click: persist.
+// Both take the group id and the new value (null for a clear) rather than a
+// pre-merged object, so the caller - not this shared signal - owns the merge.
 export function Pickers({ onPreview, onCommit }) {
   const chosen = colors.value
   const seeded = styleColors.value
@@ -70,15 +72,15 @@ export function Pickers({ onPreview, onCommit }) {
               data-color={g.id}
               title={g.label + ' label color'}
               value={(c && forSwatch(c)) || seeded[g.id]}
-              onInput={(e) => onPreview({ ...colors.value, [g.id]: e.currentTarget.value })}
-              onChange={(e) => onCommit({ ...colors.value, [g.id]: e.currentTarget.value })}
+              onInput={(e) => onPreview(g.id, e.currentTarget.value)}
+              onChange={(e) => onCommit(g.id, e.currentTarget.value)}
             />
             <button
               class="color-clear"
               data-color={g.id}
               title={'Back to the style’s ' + g.label + ' color'}
               disabled={!c}
-              onClick={() => onCommit({ ...colors.value, [g.id]: null })}
+              onClick={() => onCommit(g.id, null)}
             >
               ×
             </button>

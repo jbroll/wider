@@ -155,9 +155,9 @@ export function startPage() {
   return serveHtml(page())
 }
 
-// Serves colors.jsx's toHex/seedColors directly, bypassing MapLibre - a color
-// string toHex can't reduce to rgb() is also one MapLibre's style validation
-// refuses to load, so those code paths are unreachable through a running map.
+// Serves colors.jsx's toHex/seedColors directly, bypassing MapLibre - a style
+// carrying a color toHex can't reduce to rgb() fails MapLibre's own style
+// validation, so those code paths can't be observed through a loaded map.
 let domHarnessBody = null
 async function domHarnessPage() {
   if (domHarnessBody === null) {

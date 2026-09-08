@@ -94,12 +94,14 @@ because the styles write their colors as `#666`, `hsl(...)` and `rgba(...)`
 while `<input type="color">` takes only `#rrggbb`. That code assigns the string
 to a throwaway element's `style.color` and reads `getComputedStyle` back, which
 the browser normalises to `rgb(r, g, b)`. It needs a DOM, so it lives in
-`colors.jsx` and Playwright covers it rather than `node --test`. A color the
-browser can't reduce to `rgb()` - `lab()`, `oklch()` - is also one MapLibre's
-own style validation rejects, so `toHex`'s null-returning paths can't be
-reached through a running map; `test/dom-harness.jsx` bundles `colors.jsx`
-alone and `test/harness.js`'s `startDomHarness` serves it so those paths can be
-called directly.
+`colors.jsx` and Playwright covers it rather than `node --test`. `seedColors`
+runs on the fetched style before `map.setStyle` ever sees it, so a color the
+browser can't reduce to `rgb()` - `lab()`, `oklch()` - does reach `toHex`'s
+null-returning paths in production; that style then fails MapLibre's own
+validation and never loads, so no test can observe those paths through a
+loaded map. `test/dom-harness.jsx` bundles `colors.jsx` alone and
+`test/harness.js`'s `startDomHarness` serves it so those paths can be called
+directly.
 
 `<input type="color">` fires `input` continuously while its dialog is open, at
 pointer rate, unlike the steppers' discrete clicks. `styles.jsx` splits the

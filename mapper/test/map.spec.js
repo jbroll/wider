@@ -424,6 +424,32 @@ test('dragging the swatch coalesces map updates to one per frame and defers the 
     .toContain('333333')
 })
 
+// The spec above dispatches its events in one synchronous task, so no frame
+// can land between them; this one spans real animation frames, which a
+// coalescing guard deleted from previewColors would fail to survive.
+test('coalescing still holds when input events land in separate frames', async ({ page }) => {
+  await open(page)
+  await page.evaluate(() => {
+    window.__setStyleCalls = 0
+    const map = window.mapper.map
+    const orig = map.setStyle.bind(map)
+    map.setStyle = (...args) => { window.__setStyleCalls += 1; return orig(...args) }
+  })
+  const dispatch = (sel, values) => page.evaluate(([s, vals]) => {
+    const el = document.querySelector(s)
+    for (const v of vals) {
+      el.value = v
+      el.dispatchEvent(new Event('input', { bubbles: true }))
+    }
+  }, [sel, values])
+  const sel = swatch('streets')
+  await dispatch(sel, ['#111111', '#222222'])
+  await nextFrame(page)
+  await dispatch(sel, ['#333333'])
+  await nextFrame(page)
+  expect(await page.evaluate(() => window.__setStyleCalls)).toBeLessThan(3)
+})
+
 test('a light color gets a black halo', async ({ page }) => {
   await open(page)
   await page.locator(swatch('places')).fill('#eeeeee')
@@ -525,6 +551,12 @@ test('toHex returns null for an unset color and for one it cannot reduce to rgb'
   // normalizing to rgb(), so the regex in toHex never matches it.
   expect(await page.evaluate(() => window.__colorsDom.toHex('lab(50% 40 59.5)'))).toBeNull()
   expect(await page.evaluate(() => window.__colorsDom.toHex('#334455'))).toBe('#334455')
+})
+
+test('forSwatch expands a stored #rgb value to #rrggbb', async ({ page }) => {
+  await page.goto(domServer.url)
+  expect(await page.evaluate(() => window.__colorsDom.forSwatch('#abc'))).toBe('#aabbcc')
+  expect(await page.evaluate(() => window.__colorsDom.forSwatch('#334455'))).toBe('#334455')
 })
 
 test('seedColors falls back to black when the only color for a group is unparseable', async ({ page }) => {

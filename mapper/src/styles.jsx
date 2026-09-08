@@ -19,6 +19,11 @@ let switchToken = 0
 // object rather than refetching, so the transform must not mutate it.
 let fetched = null
 
+// What the store holds. colors.value is the display-and-apply value and can
+// hold an uncommitted preview; committed is merged into on commit and is what
+// a commit persists, so a dismissed preview can never be spread by a later one.
+let committed = null
+
 // Both transforms read their values at the moment they apply, so a picker
 // moved while a switch is in flight is carried by that switch when it lands.
 const transform = (style) => applyColors(applyTweaks(style, tweaks.value), colors.value)
@@ -89,6 +94,7 @@ export function addStyleControl(map, store, style) {
   current.value = loadStyle(store)
   tweaks.value = loadTweaks(store)
   colors.value = loadColors(store)
+  committed = colors.value
   fetched = style
   styleColors.value = seedColors(style)
 
@@ -107,8 +113,8 @@ export function addStyleControl(map, store, style) {
   // update is coalesced to one per frame; the store write waits for commit.
   let previewFrame = 0
 
-  const previewColors = (next) => {
-    colors.value = next
+  const previewColors = (id, value) => {
+    colors.value = { ...committed, [id]: value }
     if (previewFrame) return
     previewFrame = requestAnimationFrame(() => {
       previewFrame = 0
@@ -116,12 +122,13 @@ export function addStyleControl(map, store, style) {
     })
   }
 
-  const changeColors = (next) => {
+  const changeColors = (id, value) => {
     if (previewFrame) {
       cancelAnimationFrame(previewFrame)
       previewFrame = 0
     }
-    colors.value = saveColors(store, next)
+    committed = saveColors(store, { ...committed, [id]: value })
+    colors.value = committed
     if (fetched) map.setStyle(transform(fetched))
   }
 
@@ -142,6 +149,8 @@ export function addStyleControl(map, store, style) {
       )
       return el
     },
-    onRemove() {},
+    onRemove() {
+      if (previewFrame) cancelAnimationFrame(previewFrame)
+    },
   }, 'top-right')
 }
