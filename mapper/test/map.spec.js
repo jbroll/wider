@@ -1,10 +1,13 @@
 import { test, expect } from './pw.js'
-import { startPage, routeStyle, styleFor } from './harness.js'
+import { startPage, routeStyle, styleFor, startDomHarness } from './harness.js'
 
 let server
+let domServer
 
 test.beforeAll(async () => { server = await startPage() })
 test.afterAll(async () => { await server.close() })
+test.beforeAll(async () => { domServer = await startDomHarness() })
+test.afterAll(async () => { await domServer.close() })
 
 async function open(page) {
   await routeStyle(page)
@@ -397,6 +400,30 @@ test('setting the Streets color recolors that layer and fetches no style', async
   expect(styleRequests).toBe(0)
 })
 
+test('dragging the swatch coalesces map updates to one per frame and defers the store write to commit', async ({ page }) => {
+  await open(page)
+  await page.evaluate(() => {
+    window.__setStyleCalls = 0
+    const map = window.mapper.map
+    const orig = map.setStyle.bind(map)
+    map.setStyle = (...args) => { window.__setStyleCalls += 1; return orig(...args) }
+    const el = document.querySelector('#styles .color-swatch[data-color="streets"]')
+    for (const v of ['#111111', '#222222', '#333333']) {
+      el.value = v
+      el.dispatchEvent(new Event('input', { bubbles: true }))
+    }
+  })
+  expect(await page.evaluate(() => localStorage.getItem('mapper.colors'))).toBe(null)
+  await expect.poll(() => paintOf(page, 'street-label', 'text-color')).toBe('#333333')
+  expect(await page.evaluate(() => window.__setStyleCalls)).toBe(1)
+  await page.evaluate(() => {
+    const el = document.querySelector('#styles .color-swatch[data-color="streets"]')
+    el.dispatchEvent(new Event('change', { bubbles: true }))
+  })
+  await expect.poll(() => page.evaluate(() => localStorage.getItem('mapper.colors')))
+    .toContain('333333')
+})
+
 test('a light color gets a black halo', async ({ page }) => {
   await open(page)
   await page.locator(swatch('places')).fill('#eeeeee')
@@ -477,6 +504,41 @@ test('switching style keeps the current colors applied', async ({ page }) => {
   await expect.poll(() => styleName(page)).toBe('dark')
   expect(await paintOf(page, 'street-label', 'text-color')).toBe('#1a1a1a')
   await expect(page.locator(swatch('streets'))).toHaveValue('#1a1a1a')
+})
+
+test('a picker for a group absent from the style still renders, stores and clears', async ({ page }) => {
+  await open(page)
+  await page.click('#styles .style-button[data-style="fiord"]')
+  await expect.poll(() => styleName(page)).toBe('fiord')
+  await expect(page.locator(swatch('pois'))).toHaveValue('#000000')
+  await expect(page.locator(clearer('pois'))).toBeDisabled()
+  await page.locator(swatch('pois')).fill('#7a4f00')
+  await expect.poll(() => page.evaluate(() => localStorage.getItem('mapper.colors')))
+    .toContain('7a4f00')
+  await expect(page.locator(clearer('pois'))).toBeEnabled()
+})
+
+test('toHex returns null for an unset color and for one it cannot reduce to rgb', async ({ page }) => {
+  await page.goto(domServer.url)
+  expect(await page.evaluate(() => window.__colorsDom.toHex(''))).toBeNull()
+  // lab() is valid CSS the browser keeps in lab() form rather than
+  // normalizing to rgb(), so the regex in toHex never matches it.
+  expect(await page.evaluate(() => window.__colorsDom.toHex('lab(50% 40 59.5)'))).toBeNull()
+  expect(await page.evaluate(() => window.__colorsDom.toHex('#334455'))).toBe('#334455')
+})
+
+test('seedColors falls back to black when the only color for a group is unparseable', async ({ page }) => {
+  await page.goto(domServer.url)
+  const out = await page.evaluate(() => window.__colorsDom.seedColors({
+    version: 8,
+    layers: [{
+      id: 'place-label',
+      type: 'symbol',
+      'source-layer': 'place',
+      paint: { 'text-color': 'lab(50% 40 59.5)' },
+    }],
+  }))
+  expect(out.places).toBe('#000000')
 })
 
 test('a color set during an in-flight switch is carried by that switch', async ({ page }) => {

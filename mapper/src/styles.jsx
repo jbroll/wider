@@ -103,7 +103,24 @@ export function addStyleControl(map, store, style) {
     if (fetched) map.setStyle(transform(fetched))
   }
 
+  // The color dialog fires input continuously while dragging, so the map
+  // update is coalesced to one per frame; the store write waits for commit.
+  let previewFrame = 0
+
+  const previewColors = (next) => {
+    colors.value = next
+    if (previewFrame) return
+    previewFrame = requestAnimationFrame(() => {
+      previewFrame = 0
+      if (fetched) map.setStyle(transform(fetched))
+    })
+  }
+
   const changeColors = (next) => {
+    if (previewFrame) {
+      cancelAnimationFrame(previewFrame)
+      previewFrame = 0
+    }
     colors.value = saveColors(store, next)
     if (fetched) map.setStyle(transform(fetched))
   }
@@ -119,7 +136,7 @@ export function addStyleControl(map, store, style) {
           <div class="tweak-divider" />
           <Steppers onChange={change} />
           <div class="tweak-divider" />
-          <Pickers onChange={changeColors} />
+          <Pickers onPreview={previewColors} onCommit={changeColors} />
         </>,
         el,
       )

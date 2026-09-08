@@ -6,6 +6,7 @@ import {
   validateColor, validateColors, parseColors, loadColors, saveColors,
   luminance, haloFor, applyColors,
 } from '../src/colors.js'
+import { applyTweaks } from '../src/tweaks.js'
 
 function fakeStore(seed = {}) {
   const map = new Map(Object.entries(seed))
@@ -203,11 +204,29 @@ test('the input style is not mutated', () => {
 })
 
 test('applying twice to the same input does not compound', () => {
-  const input = stub()
-  assert.deepEqual(applyColors(input, SET), applyColors(input, SET))
+  const once = applyColors(stub(), SET)
+  const twice = applyColors(once, SET)
+  assert.deepEqual(twice, once)
 })
 
 test('a style with no layers is returned as it is', () => {
   assert.equal(applyColors(null, SET), null)
   assert.deepEqual(applyColors({ version: 8 }, SET), { version: 8 })
+})
+
+test('a text-scale tweak and a label color survive one transform together', () => {
+  const style = {
+    version: 8,
+    layers: [{
+      id: 'place-label',
+      type: 'symbol',
+      'source-layer': 'place',
+      layout: { 'text-size': 12 },
+      paint: { 'text-color': '#333' },
+    }],
+  }
+  const scaled = applyTweaks(style, { textScale: 1.5, buildingMinZoom: 13 })
+  const out = applyColors(scaled, { ...DEFAULT_COLORS, places: '#1a1a1a' })
+  assert.equal(out.layers[0].layout['text-size'], 18)
+  assert.equal(out.layers[0].paint['text-color'], '#1a1a1a')
 })

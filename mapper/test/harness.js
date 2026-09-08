@@ -3,6 +3,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { execFileSync } from 'node:child_process'
 import { fileURLToPath } from 'node:url'
+import { build } from 'esbuild'
 
 const HERE = path.dirname(fileURLToPath(import.meta.url))
 const DIST = path.join(HERE, '..', 'dist', 'index.html')
@@ -44,8 +45,64 @@ export const LABEL_COLORS = {
 // One labelled layer per color group, plus a shield with no text-color and a
 // water label whose color is an hsl() the seeding code has to normalise.
 // street-label declares no text-halo-width, so the transform's absent-width
-// clause is exercised too.
+// clause is exercised too. fiord drops the POI layer so a group absent from
+// the current style is exercised by at least one style.
 export function styleFor(id) {
+  const layers = [
+    { id: 'bg', type: 'background', paint: { 'background-color': STYLE_COLORS[id] || '#cfe8cf' } },
+    {
+      id: 'place-label',
+      type: 'symbol',
+      source: 'empty',
+      'source-layer': 'place',
+      layout: { 'text-size': 12 },
+      paint: { 'text-color': '#334455', 'text-halo-color': '#ffffff', 'text-halo-width': 1.4 },
+    },
+  ]
+  if (id !== 'fiord') {
+    layers.push({
+      id: 'poi-label',
+      type: 'symbol',
+      source: 'empty',
+      'source-layer': 'poi',
+      layout: { 'text-size': ['interpolate', ['linear'], ['zoom'], 10, 10, 16, 20] },
+      paint: { 'text-color': '#666666', 'text-halo-width': 1 },
+    })
+  }
+  layers.push(
+    {
+      id: 'street-label',
+      type: 'symbol',
+      source: 'empty',
+      'source-layer': 'transportation_name',
+      layout: { 'text-size': 12 },
+      paint: { 'text-color': LABEL_COLORS[id] || '#666666' },
+    },
+    {
+      id: 'street-shield',
+      type: 'symbol',
+      source: 'empty',
+      'source-layer': 'transportation_name',
+      layout: { 'text-size': 12 },
+      paint: { 'icon-opacity': 1 },
+    },
+    {
+      id: 'water-label',
+      type: 'symbol',
+      source: 'empty',
+      'source-layer': 'water_name',
+      layout: { 'text-size': 12 },
+      paint: { 'text-color': 'hsl(210, 50%, 40%)', 'text-halo-width': 1 },
+    },
+    {
+      id: 'building',
+      type: 'fill',
+      source: 'vector',
+      'source-layer': 'building',
+      minzoom: 13,
+      paint: { 'fill-color': '#ddd' },
+    },
+  )
   return {
     version: 8,
     name: id,
@@ -53,57 +110,7 @@ export function styleFor(id) {
       empty: { type: 'geojson', data: { type: 'FeatureCollection', features: [] } },
       vector: { type: 'vector', tiles: ['https://tiles.openfreemap.org/data/{z}/{x}/{y}.pbf'] },
     },
-    layers: [
-      { id: 'bg', type: 'background', paint: { 'background-color': STYLE_COLORS[id] || '#cfe8cf' } },
-      {
-        id: 'place-label',
-        type: 'symbol',
-        source: 'empty',
-        'source-layer': 'place',
-        layout: { 'text-size': 12 },
-        paint: { 'text-color': '#334455', 'text-halo-color': '#ffffff', 'text-halo-width': 1.4 },
-      },
-      {
-        id: 'poi-label',
-        type: 'symbol',
-        source: 'empty',
-        'source-layer': 'poi',
-        layout: { 'text-size': ['interpolate', ['linear'], ['zoom'], 10, 10, 16, 20] },
-        paint: { 'text-color': '#666666', 'text-halo-width': 1 },
-      },
-      {
-        id: 'street-label',
-        type: 'symbol',
-        source: 'empty',
-        'source-layer': 'transportation_name',
-        layout: { 'text-size': 12 },
-        paint: { 'text-color': LABEL_COLORS[id] || '#666666' },
-      },
-      {
-        id: 'street-shield',
-        type: 'symbol',
-        source: 'empty',
-        'source-layer': 'transportation_name',
-        layout: { 'text-size': 12 },
-        paint: { 'icon-opacity': 1 },
-      },
-      {
-        id: 'water-label',
-        type: 'symbol',
-        source: 'empty',
-        'source-layer': 'water_name',
-        layout: { 'text-size': 12 },
-        paint: { 'text-color': 'hsl(210, 50%, 40%)', 'text-halo-width': 1 },
-      },
-      {
-        id: 'building',
-        type: 'fill',
-        source: 'vector',
-        'source-layer': 'building',
-        minzoom: 13,
-        paint: { 'fill-color': '#ddd' },
-      },
-    ],
+    layers,
   }
 }
 
@@ -120,8 +127,7 @@ export async function routeStyle(page) {
   await page.route('**/tiles.openfreemap.org/data/**', (r) => r.abort('failed'))
 }
 
-export function startPage() {
-  const body = page()
+function serveHtml(body) {
   const server = http.createServer((req, res) => {
     if (req.url.split('?')[0] !== '/') {
       res.writeHead(404).end('not found')
@@ -143,4 +149,33 @@ export function startPage() {
       })
     })
   })
+}
+
+export function startPage() {
+  return serveHtml(page())
+}
+
+// Serves colors.jsx's toHex/seedColors directly, bypassing MapLibre - a color
+// string toHex can't reduce to rgb() is also one MapLibre's style validation
+// refuses to load, so those code paths are unreachable through a running map.
+let domHarnessBody = null
+async function domHarnessPage() {
+  if (domHarnessBody === null) {
+    const out = await build({
+      entryPoints: [path.join(HERE, 'dom-harness.jsx')],
+      absWorkingDir: path.join(HERE, '..'),
+      bundle: true,
+      write: false,
+      format: 'iife',
+      target: 'es2022',
+      jsx: 'automatic',
+      jsxImportSource: 'preact',
+    })
+    domHarnessBody = '<!doctype html><body><script>' + out.outputFiles[0].text + '</script>'
+  }
+  return domHarnessBody
+}
+
+export async function startDomHarness() {
+  return serveHtml(await domHarnessPage())
 }

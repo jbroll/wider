@@ -94,7 +94,21 @@ because the styles write their colors as `#666`, `hsl(...)` and `rgba(...)`
 while `<input type="color">` takes only `#rrggbb`. That code assigns the string
 to a throwaway element's `style.color` and reads `getComputedStyle` back, which
 the browser normalises to `rgb(r, g, b)`. It needs a DOM, so it lives in
-`colors.jsx` and Playwright covers it rather than `node --test`.
+`colors.jsx` and Playwright covers it rather than `node --test`. A color the
+browser can't reduce to `rgb()` - `lab()`, `oklch()` - is also one MapLibre's
+own style validation rejects, so `toHex`'s null-returning paths can't be
+reached through a running map; `test/dom-harness.jsx` bundles `colors.jsx`
+alone and `test/harness.js`'s `startDomHarness` serves it so those paths can be
+called directly.
+
+`<input type="color">` fires `input` continuously while its dialog is open, at
+pointer rate, unlike the steppers' discrete clicks. `styles.jsx` splits the
+picker's two callbacks accordingly: `onPreview` runs on every `input`, sets the
+signal eagerly so the swatch stays responsive, and coalesces the map update to
+one `requestAnimationFrame` per drag; `onCommit` runs once, on `change` or on
+the clear click, and is the only path that writes `mapper.colors`. A commit
+cancels any pending preview frame so a stale one cannot re-apply after the
+commit's own `setStyle`.
 
 The toast host is appended to `document.body`, not into `#map`, so it
 survives `#map` being blanked by the style-load failure message. `#toast` is
