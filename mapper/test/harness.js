@@ -17,10 +17,12 @@ function page() {
   return html
 }
 
-// The background layer needs no source. The two symbol layers sit on an empty
-// inline GeoJSON source, and the building layer sits on a vector source whose
-// tiles are aborted by routeStyle, so no tile request leaves the machine. The
-// colour and name differ per style so a test can tell which one is drawn.
+// The background layer needs no source. The symbol layers sit on an empty
+// inline GeoJSON source and carry no text-field, so neither tiles nor glyphs
+// are ever fetched for them. The building layer needs a vector source to carry
+// a source-layer; its tiles are declared inline so no TileJSON is fetched, and
+// routeStyle aborts any request that does reach them. The colour and name
+// differ per style so a test can tell which one is drawn.
 export const STYLE_COLORS = {
   liberty: '#cfe8cf',
   bright: '#f6f0d8',
@@ -29,11 +31,20 @@ export const STYLE_COLORS = {
   fiord: '#4a5568',
 }
 
-// The symbol layers sit on an empty inline GeoJSON source and carry no
-// text-field, so neither tiles nor glyphs are ever fetched for them. The
-// building layer needs a vector source to carry a source-layer; its tiles are
-// declared inline so no TileJSON is fetched, and routeStyle aborts any request
-// that does reach them.
+// The Streets label color differs per style so a test can watch an unset
+// swatch re-seed on a switch.
+export const LABEL_COLORS = {
+  liberty: '#666666',
+  bright: '#886644',
+  positron: '#444444',
+  dark: '#504e4e',
+  fiord: '#333333',
+}
+
+// One labelled layer per color group, plus a shield with no text-color and a
+// water label whose color is an hsl() the seeding code has to normalise.
+// street-label declares no text-halo-width, so the transform's absent-width
+// clause is exercised too.
 export function styleFor(id) {
   return {
     version: 8,
@@ -44,12 +55,45 @@ export function styleFor(id) {
     },
     layers: [
       { id: 'bg', type: 'background', paint: { 'background-color': STYLE_COLORS[id] || '#cfe8cf' } },
-      { id: 'place-label', type: 'symbol', source: 'empty', layout: { 'text-size': 12 } },
+      {
+        id: 'place-label',
+        type: 'symbol',
+        source: 'empty',
+        'source-layer': 'place',
+        layout: { 'text-size': 12 },
+        paint: { 'text-color': '#334455', 'text-halo-color': '#ffffff', 'text-halo-width': 1.4 },
+      },
       {
         id: 'poi-label',
         type: 'symbol',
         source: 'empty',
+        'source-layer': 'poi',
         layout: { 'text-size': ['interpolate', ['linear'], ['zoom'], 10, 10, 16, 20] },
+        paint: { 'text-color': '#666666', 'text-halo-width': 1 },
+      },
+      {
+        id: 'street-label',
+        type: 'symbol',
+        source: 'empty',
+        'source-layer': 'transportation_name',
+        layout: { 'text-size': 12 },
+        paint: { 'text-color': LABEL_COLORS[id] || '#666666' },
+      },
+      {
+        id: 'street-shield',
+        type: 'symbol',
+        source: 'empty',
+        'source-layer': 'transportation_name',
+        layout: { 'text-size': 12 },
+        paint: { 'icon-opacity': 1 },
+      },
+      {
+        id: 'water-label',
+        type: 'symbol',
+        source: 'empty',
+        'source-layer': 'water_name',
+        layout: { 'text-size': 12 },
+        paint: { 'text-color': 'hsl(210, 50%, 40%)', 'text-halo-width': 1 },
       },
       {
         id: 'building',
