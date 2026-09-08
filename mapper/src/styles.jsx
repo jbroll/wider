@@ -18,25 +18,36 @@ export function toast(text) {
 }
 
 // Fetch before setStyle: a failed request must not tear down the running map.
+// The token is bumped before the current-style early return, so clicking the
+// current style still cancels whatever switch is in flight.
 export async function switchStyle(map, store, id) {
-  if (id === current.value) return true
   const token = ++switchToken
+  if (id === current.value) return true
   let style
   try {
     const res = await fetch(styleUrl(id))
     if (!res.ok) throw new Error('HTTP ' + res.status)
     style = await res.json()
-    if (token !== switchToken) return false
-    map.setStyle(style)
   } catch (err) {
     if (token !== switchToken) return false
     console.error(err)
-    toast('Could not load the ' + id + ' style.')
+    const name = (STYLES.find((s) => s.id === id) || {}).name || id
+    toast('Could not load the ' + name + ' style.')
     return false
   }
-  current.value = id
-  saveStyle(store, id)
-  return true
+  if (token !== switchToken) return false
+  map.setStyle(style)
+  // setStyle applying is not the same as the style loading: a body that
+  // parses but fails validation, or a broken sprite, still needs a real
+  // load signal before the switch counts as done.
+  return new Promise((resolve) => {
+    map.once('styledata', () => {
+      if (token !== switchToken) { resolve(false); return }
+      current.value = id
+      saveStyle(store, id)
+      resolve(true)
+    })
+  })
 }
 
 function Buttons({ map, store }) {
@@ -55,7 +66,7 @@ function Buttons({ map, store }) {
 }
 
 function Toast() {
-  return message.value ? <div id="toast">{message.value}</div> : null
+  return message.value ? <div id="toast" aria-live="polite">{message.value}</div> : null
 }
 
 export function addStyleControl(map, store) {
