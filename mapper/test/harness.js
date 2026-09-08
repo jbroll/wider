@@ -17,9 +17,10 @@ function page() {
   return html
 }
 
-// One background layer and no sources, so the map builds and paints without a
-// single tile request leaving the machine. The colour and name differ per style
-// so a test can tell which one is drawn.
+// The background layer needs no source. The two symbol layers sit on an empty
+// inline GeoJSON source, and the building layer sits on a vector source whose
+// tiles are aborted by routeStyle, so no tile request leaves the machine. The
+// colour and name differ per style so a test can tell which one is drawn.
 export const STYLE_COLORS = {
   liberty: '#cfe8cf',
   bright: '#f6f0d8',
@@ -31,8 +32,8 @@ export const STYLE_COLORS = {
 // The symbol layers sit on an empty inline GeoJSON source and carry no
 // text-field, so neither tiles nor glyphs are ever fetched for them. The
 // building layer needs a vector source to carry a source-layer; its tiles are
-// declared inline so no TileJSON is fetched, and at the default view its
-// minzoom keeps the source from being asked for anything.
+// declared inline so no TileJSON is fetched, and routeStyle aborts any request
+// that does reach them.
 export function styleFor(id) {
   return {
     version: 8,
@@ -65,12 +66,14 @@ export function styleFor(id) {
 export const STYLE = styleFor('liberty')
 
 export async function routeStyle(page) {
-  await page.route('**/tiles.openfreemap.org/data/**', (r) => r.abort('failed'))
+  // Playwright matches route handlers in reverse registration order, so the
+  // general handler must be registered first to let the /data/** abort win.
   await page.route('**/tiles.openfreemap.org/**', (r) => {
     const id = new URL(r.request().url()).pathname.split('/').pop()
     const body = STYLE_COLORS[id] ? styleFor(id) : STYLE
     return r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(body) })
   })
+  await page.route('**/tiles.openfreemap.org/data/**', (r) => r.abort('failed'))
 }
 
 export function startPage() {

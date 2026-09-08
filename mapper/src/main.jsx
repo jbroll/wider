@@ -15,8 +15,10 @@ const SAVE_DELAY = 300
 // MapLibre's transformStyle hook exists only on setStyle, not on the map
 // constructor, so a style loaded by URL at startup cannot be transformed on the
 // way in. Fetching it here is the only way to hand the constructor an object.
+// A timeout so a hung request lands on the LOAD_FAILED message below instead
+// of leaving the window empty forever.
 async function fetchStyle(id) {
-  const res = await fetch(styleUrl(id))
+  const res = await fetch(styleUrl(id), { signal: AbortSignal.timeout(15000) })
   if (!res.ok) throw new Error('HTTP ' + res.status)
   return res.json()
 }

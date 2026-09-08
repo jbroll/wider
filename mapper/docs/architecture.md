@@ -34,9 +34,9 @@ MapLibre owns the map canvas directly (`src/map.js`), which is why `map.js`
 is a plain function rather than a component. Preact renders the places
 panel (`src/places.jsx`) and the style control and toast (`src/styles.jsx`).
 
-`src/view.js`, `src/places.js` and `src/tweaks.js` take a `localStorage`-shaped store as an
-argument instead of reading the global directly. That is what lets them
-run under `node --test` without a browser. `src/store.js` wraps
+`src/view.js`, `src/places.js` and `src/tweaks.js` take a `localStorage`-shaped
+store as an argument instead of reading the global directly. That is what lets
+them run under `node --test` without a browser. `src/store.js` wraps
 `window.localStorage` so a thrown access (a browser policy blocking site
 data, or a quota error) yields a no-op store instead of crashing the page;
 `main.jsx` and `places.jsx` pass that wrapper where a store is needed.
@@ -64,9 +64,11 @@ button.
 Startup no longer passes MapLibre a style URL. `main.jsx` fetches the style
 JSON itself, runs it through `applyTweaks`, and constructs the map from the
 resulting object, because MapLibre's `transformStyle` hook exists only on
-`setStyle` and not on the map constructor. A failed startup fetch shows the
-style-load message directly; a body MapLibre rejects still reaches
-`map.on('error')`, because the map is constructed through the validating path.
+`setStyle` and not on the map constructor. The fetch carries a 15 second
+timeout, so a hung request reaches the failure message instead of leaving an
+empty window. A failed startup fetch shows the style-load message directly; a
+body MapLibre rejects still reaches `map.on('error')`, because the map is
+constructed through the validating path.
 
 `styles.jsx` holds the style as fetched, untransformed, so moving a stepper
 re-transforms that held object rather than refetching. `applyTweaks` returns a

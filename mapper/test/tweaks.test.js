@@ -40,6 +40,13 @@ function stub() {
       { id: 'odd-label', type: 'symbol', 'source-layer': 'place', layout: { 'text-size': ['get', 'size'] } },
       { id: 'building', type: 'fill', 'source-layer': 'building', minzoom: 13, maxzoom: 14 },
       { id: 'building-3d', type: 'fill-extrusion', 'source-layer': 'building', minzoom: 14 },
+      {
+        id: 'building-label',
+        type: 'symbol',
+        'source-layer': 'building',
+        minzoom: 13,
+        layout: { 'text-size': 12 },
+      },
       { id: 'road', type: 'line', 'source-layer': 'transportation', minzoom: 4 },
     ],
   }
@@ -108,6 +115,13 @@ test('an absent or unrecognised text-size is left alone', () => {
 test("a building layer's minzoom rises to the floor", () => {
   const out = applyTweaks(stub(), { textScale: 1, buildingMinZoom: 15 })
   assert.equal(layer(out, 'building-3d').minzoom, 15)
+})
+
+test('a symbol layer on the building source-layer gets both text scaling and the floor', () => {
+  const out = applyTweaks(stub(), BIG)
+  const label = layer(out, 'building-label')
+  assert.equal(label.layout['text-size'], 18)
+  assert.equal(label.minzoom, 15)
 })
 
 test('a building layer whose maxzoom is at or below the floor is dropped', () => {

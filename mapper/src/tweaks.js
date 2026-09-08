@@ -68,8 +68,9 @@ export function applyTweaks(style, tweaks) {
       continue
     }
     if (typeof layer.maxzoom === 'number' && layer.maxzoom <= buildingMinZoom) continue
-    const minzoom = Math.max(buildingMinZoom, typeof layer.minzoom === 'number' ? layer.minzoom : 0)
-    layers.push(minzoom === layer.minzoom ? layer : { ...layer, minzoom })
+    const scaled = scaleLayer(layer, textScale)
+    const minzoom = Math.max(buildingMinZoom, typeof scaled.minzoom === 'number' ? scaled.minzoom : 0)
+    layers.push(minzoom === scaled.minzoom ? scaled : { ...scaled, minzoom })
   }
   return { ...style, layers }
 }

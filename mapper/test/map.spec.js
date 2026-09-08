@@ -130,6 +130,19 @@ test('a style load failure shows the failure message', async ({ page }) => {
   await expect(page.locator('#map')).toHaveText(/style failed to load/)
 })
 
+test('a style body MapLibre rejects after construction shows the failure message', async ({ page }) => {
+  const style = {
+    version: 8,
+    name: 'broken',
+    sources: {},
+    layers: [{ id: 'missing-source', type: 'fill', source: 'nonexistent' }],
+  }
+  await page.route('**/tiles.openfreemap.org/**', (r) =>
+    r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(style) }))
+  await page.goto(server.url)
+  await expect(page.locator('#map')).toHaveText(/style failed to load/)
+})
+
 test('a failed tile leaves a drawn map in place', async ({ page }) => {
   const style = {
     version: 8,
@@ -345,4 +358,23 @@ test('switching style keeps the current tweaks applied', async ({ page }) => {
   await expect.poll(() => textSize(page, 'place-label')).toBeCloseTo(13.2, 5)
   expect(await minZoom(page, 'building')).toBe(14)
   await expect(page.locator(reading('text'))).toHaveText('110%')
+})
+
+test('a stepper moved during an in-flight switch is carried by that switch', async ({ page }) => {
+  await open(page)
+  let releaseDark
+  const held = new Promise((resolve) => { releaseDark = resolve })
+  await page.route('**/tiles.openfreemap.org/styles/dark', async (r) => {
+    await held
+    return r.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify(styleFor('dark')),
+    })
+  })
+  await page.click('#styles .style-button[data-style="dark"]')
+  await page.click(up('text'))
+  releaseDark()
+  await expect.poll(() => styleName(page)).toBe('dark')
+  await expect.poll(() => textSize(page, 'place-label')).toBeCloseTo(13.2, 5)
 })
