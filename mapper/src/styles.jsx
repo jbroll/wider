@@ -37,9 +37,11 @@ export async function switchStyle(map, store, id) {
   }
   if (token !== switchToken) return false
   map.setStyle(style)
-  // setStyle applying is not the same as the style loading: a body that
-  // parses but fails validation, or a broken sprite, still needs a real
-  // load signal before the switch counts as done.
+  // styledata here is not a load confirmation, just the "style changed" tick
+  // MapLibre fires once setState accepts the body. A body setState rejects as
+  // invalid fires no styledata, so nothing gets persisted for it - that's the
+  // one failure this wait actually screens out. A broken sprite fires
+  // styledata anyway; see docs/backlog.md.
   return new Promise((resolve) => {
     map.once('styledata', () => {
       if (token !== switchToken) { resolve(false); return }
@@ -66,7 +68,7 @@ function Buttons({ map, store }) {
 }
 
 function Toast() {
-  return message.value ? <div id="toast" aria-live="polite">{message.value}</div> : null
+  return <div id="toast" aria-live="polite" hidden={!message.value}>{message.value}</div>
 }
 
 export function addStyleControl(map, store) {

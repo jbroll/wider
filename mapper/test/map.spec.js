@@ -156,6 +156,11 @@ test('a failed tile leaves a drawn map in place', async ({ page }) => {
 
 const styleName = (page) => page.evaluate(() => window.mapper.map.getStyle().name)
 
+// styledata (win or lose) fires from Style.update() on the next render frame
+// after setStyle, so one animation frame is enough for a losing switch to
+// have had its chance to apply.
+const nextFrame = (page) => page.evaluate(() => new Promise((r) => requestAnimationFrame(() => r())))
+
 test('clicking a style loads it and marks its button', async ({ page }) => {
   await open(page)
   const asked = page.waitForRequest('**/tiles.openfreemap.org/styles/dark')
@@ -218,10 +223,33 @@ test('a later click wins over a slower in-flight switch', async ({ page }) => {
   const darkResponded = page.waitForResponse('**/tiles.openfreemap.org/styles/dark')
   releaseDark()
   await darkResponded
-  await page.waitForTimeout(200)
+  await nextFrame(page)
   expect(await styleName(page)).toBe('fiord')
   await expect(page.locator('#styles .style-button.current')).toHaveAttribute('data-style', 'fiord')
   expect(await page.evaluate(() => localStorage.getItem('mapper.style'))).toBe('fiord')
+})
+
+test('clicking back to the current style cancels an in-flight switch', async ({ page }) => {
+  await open(page)
+  let releaseDark
+  const held = new Promise((resolve) => { releaseDark = resolve })
+  await page.route('**/tiles.openfreemap.org/styles/dark', async (r) => {
+    await held
+    return r.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify(styleFor('dark')),
+    })
+  })
+  await page.click('#styles .style-button[data-style="dark"]')
+  await page.click('#styles .style-button[data-style="liberty"]')
+  const darkResponded = page.waitForResponse('**/tiles.openfreemap.org/styles/dark')
+  releaseDark()
+  await darkResponded
+  await nextFrame(page)
+  expect(await styleName(page)).toBe('liberty')
+  await expect(page.locator('#styles .style-button.current')).toHaveAttribute('data-style', 'liberty')
+  expect(await page.evaluate(() => localStorage.getItem('mapper.style'))).toBe(null)
 })
 
 test('a failed style request keeps the current style and shows a toast', async ({ page }) => {
@@ -229,7 +257,7 @@ test('a failed style request keeps the current style and shows a toast', async (
   // Registered after routeStyle, so it wins for this one path.
   await page.route('**/tiles.openfreemap.org/styles/dark', (r) => r.fulfill({ status: 500 }))
   await page.click('#styles .style-button[data-style="dark"]')
-  await expect(page.locator('#toast')).toHaveText(/dark/i)
+  await expect(page.locator('#toast')).toHaveText('Could not load the Dark style.')
   expect(await styleName(page)).toBe('liberty')
   await expect(page.locator('#styles .style-button.current')).toHaveAttribute('data-style', 'liberty')
   expect(await page.evaluate(() => localStorage.getItem('mapper.style'))).toBe(null)
