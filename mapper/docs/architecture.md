@@ -54,8 +54,12 @@ A switch fetches the style JSON and only then calls `map.setStyle` with the
 parsed object. A failed fetch never reaches `setStyle`, so the running map
 stays up and the stored id and the marked button stay on the style that is
 actually drawn. The switch does not count as done at `setStyle` either: it
-waits for MapLibre's `styledata` event, so persisting the id and moving the
-marked button both wait for a real load confirmation. Startup still passes
+waits for MapLibre's `styledata` event. That event is not a load
+confirmation - it is the "style changed" tick MapLibre fires once
+`Style.setState` accepts the body, on the next render frame. What the wait
+actually buys is narrower: a style body MapLibre rejects as invalid never
+fires styledata, so it never gets persisted and never moves the marked
+button. Startup still passes
 MapLibre a style URL, which keeps a launch-time failure on the existing
 `map.on('error')` path.
 

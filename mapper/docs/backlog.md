@@ -21,4 +21,13 @@
   body, or a failed sprite fetch - emits a bare error with no `tile` and no
   `sourceId`, so `main.jsx` classifies it as a style-load failure and blanks
   `#map`, taking the style control down with it. Fixing that means teaching
-  the error handler which failures belong to a switch.
+  the error handler which failures belong to a switch. A failed sprite fetch
+  is worse than a blank map with no explanation: MapLibre fires styledata for
+  it anyway (from the same chain's `.finally`), so `switchStyle` persists the
+  id and moves the marked button before the error handler blanks `#map` -
+  `styledata` is not the event that would prevent that, since it fires
+  whether or not the sprite fetch succeeded.
+- A switch whose `setStyle` produces no styledata - an invalid style, or a
+  diff that yields no operations - leaves `switchStyle`'s wait pending and
+  its `map.once('styledata')` listener registered forever. The button and the
+  stored id are silently left on whatever style was current before the click.
