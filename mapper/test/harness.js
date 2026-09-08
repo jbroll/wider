@@ -18,17 +18,33 @@ function page() {
 }
 
 // One background layer and no sources, so the map builds and paints without a
-// single tile request leaving the machine.
-export const STYLE = {
-  version: 8,
-  name: 'test',
-  sources: {},
-  layers: [{ id: 'bg', type: 'background', paint: { 'background-color': '#cfe8cf' } }],
+// single tile request leaving the machine. The colour and name differ per style
+// so a test can tell which one is drawn.
+export const STYLE_COLORS = {
+  liberty: '#cfe8cf',
+  bright: '#f6f0d8',
+  positron: '#f4f4f4',
+  dark: '#222222',
+  fiord: '#4a5568',
 }
 
+export function styleFor(id) {
+  return {
+    version: 8,
+    name: id,
+    sources: {},
+    layers: [{ id: 'bg', type: 'background', paint: { 'background-color': STYLE_COLORS[id] || '#cfe8cf' } }],
+  }
+}
+
+export const STYLE = styleFor('liberty')
+
 export async function routeStyle(page) {
-  await page.route('**/tiles.openfreemap.org/**', (r) =>
-    r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(STYLE) }))
+  await page.route('**/tiles.openfreemap.org/**', (r) => {
+    const id = new URL(r.request().url()).pathname.split('/').pop()
+    const body = STYLE_COLORS[id] ? styleFor(id) : STYLE
+    return r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(body) })
+  })
 }
 
 export function startPage() {

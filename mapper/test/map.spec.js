@@ -153,3 +153,55 @@ test('a failed tile leaves a drawn map in place', async ({ page }) => {
   await expect(page.locator('#map canvas')).toBeVisible()
   await expect(page.locator('#map')).not.toHaveText(/style failed to load/)
 })
+
+const styleName = (page) => page.evaluate(() => window.mapper.map.getStyle().name)
+
+test('clicking a style loads it and marks its button', async ({ page }) => {
+  await open(page)
+  const asked = page.waitForRequest('**/tiles.openfreemap.org/styles/dark')
+  await page.click('#styles .style-button[data-style="dark"]')
+  await asked
+  await expect.poll(() => styleName(page)).toBe('dark')
+  await expect(page.locator('#styles .style-button.current')).toHaveAttribute('data-style', 'dark')
+})
+
+test('a reload comes back on the chosen style', async ({ page }) => {
+  await open(page)
+  await page.click('#styles .style-button[data-style="fiord"]')
+  await expect.poll(() => styleName(page)).toBe('fiord')
+  await expect.poll(() => page.evaluate(() => localStorage.getItem('mapper.style'))).toBe('fiord')
+  await page.reload()
+  await page.waitForFunction(() => window.mapper && window.mapper.map.loaded())
+  expect(await styleName(page)).toBe('fiord')
+  await expect(page.locator('#styles .style-button.current')).toHaveAttribute('data-style', 'fiord')
+})
+
+test('the view and a saved place survive a switch', async ({ page }) => {
+  await open(page)
+  await page.evaluate(() => {
+    localStorage.setItem('mapper.places', JSON.stringify(
+      [{ id: 'a1', name: 'Paris', lat: 48.8566, lon: 2.3522, zoom: 12, bearing: 0 }]))
+  })
+  await page.reload()
+  await page.waitForFunction(() => window.mapper && window.mapper.map.loaded())
+  await page.evaluate(() => window.mapper.map.jumpTo({ center: [2.3522, 48.8566], zoom: 12 }))
+  await page.click('#styles .style-button[data-style="positron"]')
+  await expect.poll(() => styleName(page)).toBe('positron')
+  const [lon, lat] = await center(page)
+  expect(lon).toBeCloseTo(2.3522, 2)
+  expect(lat).toBeCloseTo(48.8566, 2)
+  expect(await page.evaluate(() => window.mapper.map.getZoom())).toBeCloseTo(12, 2)
+  await expect(page.locator('#places-list .place-name')).toHaveText(['Paris'])
+})
+
+test('a failed style request keeps the current style and shows a toast', async ({ page }) => {
+  await open(page)
+  // Registered after routeStyle, so it wins for this one path.
+  await page.route('**/tiles.openfreemap.org/styles/dark', (r) => r.fulfill({ status: 500 }))
+  await page.click('#styles .style-button[data-style="dark"]')
+  await expect(page.locator('#toast')).toHaveText(/dark/)
+  expect(await styleName(page)).toBe('liberty')
+  await expect(page.locator('#styles .style-button.current')).toHaveAttribute('data-style', 'liberty')
+  expect(await page.evaluate(() => localStorage.getItem('mapper.style'))).toBe(null)
+  await expect(page.locator('#map')).not.toHaveText(/style failed to load/)
+})
