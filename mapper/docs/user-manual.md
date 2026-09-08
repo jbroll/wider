@@ -28,6 +28,18 @@ not load leaves the map as it is and shows a short-lived message at the
 bottom of the window instead. The centre, zoom, bearing, saved places and a
 half-typed pin all survive a switch.
 
+Below the style buttons, two steppers adjust how the chosen style draws:
+
+- **Text** scales every label in the style, from 100% to 150% in ten-point
+  steps.
+- **Buildings** sets the zoom below which buildings are not drawn: 13, 14, 15,
+  or 16. Buildings only exist in the tiles from zoom 13, so 13 is the default
+  and draws them as early as the data allows.
+
+Both settings apply to whichever style is showing and are saved to
+`localStorage` under `mapper.tweaks`. A missing or unrecognised value falls
+back to 100% text and buildings from zoom 13.
+
 ## Saved places
 
 Right-click the map to drop a pin and open a name field. Press Enter to

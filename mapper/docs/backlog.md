@@ -3,12 +3,12 @@
 - Offline tiles and tile caching.
 - Geocoding search.
 - Reading the wider slot configuration.
-- A control for how much the map draws when zoomed out, and per-style memory
-  of such overrides. What a style shows at a given zoom is mostly its own
-  zoom-interpolated opacity and label collision, which a zoom-range override
-  cannot reach, and beneath that the tiles have hard floors: buildings only
-  exist from zoom 13, POIs from 11, road labels from 6. Choosing a style that
-  draws more is the lever that works.
+- Per-style memory of the Text and Buildings settings. One setting shared by
+  all five styles is a statement about the screen, not about Liberty. What a
+  style shows at a given zoom is mostly its own zoom-interpolated opacity and
+  label collision, which the Buildings floor cannot reach, and beneath that the
+  tiles have hard floors: buildings only exist from zoom 13, POIs from 11, road
+  labels from 6.
 - The vector source ends at zoom 14, so a close-up past that is magnified z14
   data rather than more detail.
 - Report a source's TileJSON failure. A source that cannot fetch its TileJSON
