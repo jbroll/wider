@@ -1,18 +1,33 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { spawn, execFileSync } from 'node:child_process'
+import { spawn, spawnSync, execFileSync } from 'node:child_process'
 import { once } from 'node:events'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import net from 'node:net'
 import os from 'node:os'
+import fs from 'node:fs'
 
 const HERE = path.dirname(fileURLToPath(import.meta.url))
 const ROOT = path.join(HERE, '..')
 
+function freePort() {
+  return new Promise((resolve, reject) => {
+    const probe = net.createServer()
+    probe.listen(0, '127.0.0.1', () => {
+      const { port } = probe.address()
+      probe.close(() => resolve(port))
+    })
+    probe.on('error', reject)
+  })
+}
+
 async function start() {
   execFileSync('node', [path.join(ROOT, 'build.js')], { stdio: 'ignore' })
-  const child = spawn('node', [path.join(ROOT, 'serve.js')], { stdio: ['ignore', 'pipe', 'inherit'] })
+  // A fixed test port, not the app default, so these tests don't collide with a
+  // mapper instance the developer already has running.
+  const env = { ...process.env, MAPPER_PORT: String(await freePort()) }
+  const child = spawn('node', [path.join(ROOT, 'serve.js')], { stdio: ['ignore', 'pipe', 'inherit'], env })
   let out = ''
   for await (const chunk of child.stdout) {
     out += chunk
@@ -57,6 +72,51 @@ function nonInternalIPv4() {
   }
   return null
 }
+
+test('the server exits nonzero with a message when the port is taken', async () => {
+  const port = await freePort()
+  const holder = net.createServer()
+  await new Promise((resolve) => holder.listen(port, '127.0.0.1', resolve))
+  try {
+    execFileSync('node', [path.join(ROOT, 'build.js')], { stdio: 'ignore' })
+    const child = spawn('node', [path.join(ROOT, 'serve.js')],
+      { stdio: ['ignore', 'ignore', 'pipe'], env: { ...process.env, MAPPER_PORT: String(port) } })
+    let err = ''
+    child.stderr.on('data', (chunk) => { err += chunk })
+    const [code] = await once(child, 'exit')
+    assert.notEqual(code, 0)
+    assert.match(err, /already in use/)
+  } finally {
+    await new Promise((resolve) => holder.close(resolve))
+  }
+})
+
+test('the launcher exits nonzero and never opens Chromium when its port is busy', async () => {
+  const port = await freePort()
+  const holder = net.createServer()
+  await new Promise((resolve) => holder.listen(port, '127.0.0.1', resolve))
+
+  // A fake chromium ahead of the real one on PATH: if the launcher ever runs
+  // it, the sentinel file proves the window would have opened.
+  const fakeBinDir = fs.mkdtempSync(path.join(os.tmpdir(), 'mapper-fake-bin-'))
+  const sentinel = path.join(fakeBinDir, 'chromium-ran')
+  fs.writeFileSync(path.join(fakeBinDir, 'chromium'), `#!/bin/sh\ntouch "${sentinel}"\n`, { mode: 0o755 })
+
+  try {
+    execFileSync('node', [path.join(ROOT, 'build.js')], { stdio: 'ignore' })
+    const result = spawnSync('sh', [path.join(ROOT, 'mapper')], {
+      encoding: 'utf8',
+      env: { ...process.env, PATH: `${fakeBinDir}:${process.env.PATH}`, MAPPER_PORT: String(port) },
+    })
+    assert.notEqual(result.status, 0)
+    assert.match(result.stderr, /already running|holds the port/)
+    assert.match(result.stderr, /MAPPER_PORT/)
+    assert.equal(fs.existsSync(sentinel), false)
+  } finally {
+    await new Promise((resolve) => holder.close(resolve))
+    fs.rmSync(fakeBinDir, { recursive: true, force: true })
+  }
+})
 
 test('the server binds loopback only', async (t) => {
   const host = nonInternalIPv4()

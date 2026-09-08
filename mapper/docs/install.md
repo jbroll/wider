@@ -27,3 +27,10 @@ this checkout; edit it if you clone elsewhere. Copy it to
 `~/.config/mapper/chrome` holds the private Chromium profile the launcher
 passes as `--user-data-dir`. Deleting it resets the window, including the
 `localStorage` that holds the saved view and places.
+
+## Port
+
+`serve.js` listens on `127.0.0.1:8737` by default, so the saved view and
+places persist across launches. Set `MAPPER_PORT` to use a different port.
+If the port is already in use, the launcher stops with an error instead of
+opening a window.

@@ -2,13 +2,14 @@ import { signal } from '@preact/signals'
 import maplibregl from 'maplibre-gl'
 
 import { loadPlaces, savePlaces, addPlace, removePlace, newId } from './places.js'
+import { store } from './store.js'
 
-const places = signal(loadPlaces(window.localStorage))
+const places = signal(loadPlaces(store))
 const open = signal(true)
 const pending = signal(null)
 
 function commit(next) {
-  places.value = savePlaces(window.localStorage, next)
+  places.value = savePlaces(store, next)
 }
 
 function discard() {

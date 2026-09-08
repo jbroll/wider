@@ -1,6 +1,6 @@
 # wider
 
-X11 window management tools for Tcl/Tk.
+X11 window management tools for Tcl/Tk, plus a desktop OpenStreetMap window.
 
 ## Components
 
@@ -22,7 +22,8 @@ X11 window management tools for Tcl/Tk.
 make
 ```
 
-This builds the TkX extension required by wider and shooter.
+This builds the TkX extension required by wider and shooter. mapper builds
+separately: `npm install && npm run build` in `mapper/`.
 
 ## Quick Start
 

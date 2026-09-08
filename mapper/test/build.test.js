@@ -23,7 +23,6 @@ const NOT_A_REQUEST = new Set(['http://www.w3.org', 'https://github.com'])
 test('the bundle names no origin beyond the style and its attribution links', async () => {
   const html = await buildHtml()
   for (const match of html.matchAll(/https?:\/\/[^"'\s)\\]+/g)) {
-    if (match[0].includes('${')) continue
     let origin
     try { origin = new URL(match[0]).origin } catch { origin = match[0] }
     if (NOT_A_REQUEST.has(origin)) continue

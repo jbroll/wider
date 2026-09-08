@@ -52,6 +52,16 @@ test('escape discards the pin', async ({ page }) => {
   await expect(page.locator('#places-list .place')).toHaveCount(0)
 })
 
+test('a second right-click discards the first pending pin', async ({ page }) => {
+  await open(page)
+  const box = await page.locator('#map canvas').boundingBox()
+  await page.mouse.click(box.width / 2, box.height / 2, { button: 'right' })
+  await expect(page.locator('#pin-name')).toBeVisible()
+  await page.mouse.click(box.width / 4, box.height / 4, { button: 'right' })
+  await expect(page.locator('#pin-name')).toHaveCount(1)
+  await expect(page.locator('.maplibregl-marker')).toHaveCount(1)
+})
+
 test('a right-drag rotates and drops no pin', async ({ page }) => {
   await open(page)
   const box = await page.locator('#map canvas').boundingBox()
@@ -78,6 +88,20 @@ test('clicking a saved place moves the map to it', async ({ page }) => {
   const [lon, lat] = await center(page)
   expect(lat).toBeCloseTo(48.8566, 1)
   expect(lon).toBeCloseTo(2.3522, 1)
+})
+
+test('deleting a place removes it from the panel and storage', async ({ page }) => {
+  await open(page)
+  await page.evaluate(() => {
+    localStorage.setItem('mapper.places', JSON.stringify(
+      [{ id: 'a1', name: 'Paris', lat: 48.8566, lon: 2.3522, zoom: 12, bearing: 0 }]))
+  })
+  await page.reload()
+  await page.waitForFunction(() => window.mapper && window.mapper.map.loaded())
+  await page.click('.place-del')
+  await expect(page.locator('#places-list .place')).toHaveCount(0)
+  const stored = await page.evaluate(() => localStorage.getItem('mapper.places'))
+  expect(stored).not.toContain('a1')
 })
 
 test('a reload restores the last view', async ({ page }) => {

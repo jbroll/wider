@@ -15,7 +15,17 @@ const server = http.createServer((req, res) => {
   res.end(html)
 })
 
-server.listen(0, '127.0.0.1', () => process.stdout.write(server.address().port + '\n'))
+const PORT = Number(process.env.MAPPER_PORT) || 8737
+
+server.on('error', (err) => {
+  if (err.code === 'EADDRINUSE') {
+    process.stderr.write(`serve.js: port ${PORT} is already in use\n`)
+    process.exit(1)
+  }
+  throw err
+})
+
+server.listen(PORT, '127.0.0.1', () => process.stdout.write(server.address().port + '\n'))
 
 // The launcher's trap covers the ordinary exit. This covers a launcher that was
 // killed outright, leaving the server reparented and otherwise immortal.

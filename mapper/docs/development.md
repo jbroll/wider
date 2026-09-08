@@ -7,8 +7,8 @@ mapper/
   mapper            launcher script
   serve.js          serves dist/index.html on a loopback port
   build.js          bundles src/ into dist/index.html
-  src/               source: map.js, view.js, places.js, places.jsx, main.jsx, style.css, index.html
-  test/              node --test unit tests and Playwright specs
+  src/              source: map.js, view.js, places.js, places.jsx, main.jsx, store.js, style.css, index.html
+  test/             node --test unit tests and Playwright specs
   playwright.config.js
   mapper.desktop
 ```
