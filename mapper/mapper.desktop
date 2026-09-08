@@ -1,0 +1,8 @@
+[Desktop Entry]
+Name=Mapper
+Comment=OpenStreetMap in its own window
+Exec=/home/john/src/wider/mapper/mapper
+Icon=applications-internet
+Terminal=false
+Type=Application
+Categories=Network;Utility;

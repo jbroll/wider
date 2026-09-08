@@ -1,0 +1,19 @@
+#!/bin/sh
+# Serve the built page on a free loopback port, then open a chromeless
+# Chromium window on it. --class=Mapper is what a wider slot matches against.
+set -e
+DIR=$(dirname "$(readlink -f "$0")")
+
+[ -f "$DIR/dist/index.html" ] || node "$DIR/build.js"
+
+FIFO=$(mktemp -u "${TMPDIR:-/tmp}/mapper.XXXXXX")
+mkfifo "$FIFO"
+node "$DIR/serve.js" >"$FIFO" &
+SERVER=$!
+trap 'kill "$SERVER" 2>/dev/null; rm -f "$FIFO"' EXIT INT TERM
+PORT=$(head -n 1 "$FIFO")
+rm -f "$FIFO"
+
+chromium --app="http://127.0.0.1:$PORT" \
+         --class=Mapper \
+         --user-data-dir="$HOME/.config/mapper/chrome"
