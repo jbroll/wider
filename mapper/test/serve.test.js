@@ -4,6 +4,8 @@ import { spawn, execFileSync } from 'node:child_process'
 import { once } from 'node:events'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
+import net from 'node:net'
+import os from 'node:os'
 
 const HERE = path.dirname(fileURLToPath(import.meta.url))
 const ROOT = path.join(HERE, '..')
@@ -46,10 +48,31 @@ test('the server answers 404 off the root path', async () => {
   }
 })
 
-test('the server binds loopback only', async () => {
+function nonInternalIPv4() {
+  const nets = os.networkInterfaces()
+  for (const addrs of Object.values(nets)) {
+    for (const addr of addrs ?? []) {
+      if (addr.family === 'IPv4' && !addr.internal) return addr.address
+    }
+  }
+  return null
+}
+
+test('the server binds loopback only', async (t) => {
+  const host = nonInternalIPv4()
+  if (!host) {
+    t.skip('no non-loopback interface to probe')
+    return
+  }
   const { child, url } = await start()
   try {
-    assert.match(url, /^http:\/\/127\.0\.0\.1:/)
+    const port = Number(new URL(url).port)
+    await assert.rejects(() => new Promise((resolve, reject) => {
+      const socket = net.connect({ host, port, timeout: 2000 })
+      socket.once('connect', () => { socket.destroy(); resolve() })
+      socket.once('timeout', () => { socket.destroy(); reject(new Error('timed out')) })
+      socket.once('error', (err) => { socket.destroy(); reject(err) })
+    }))
   } finally {
     child.kill()
     await once(child, 'exit')
