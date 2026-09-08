@@ -9,6 +9,7 @@ const current = signal(DEFAULT_STYLE_ID)
 const message = signal('')
 
 let timer = 0
+let switchToken = 0
 
 export function toast(text) {
   message.value = text
@@ -19,17 +20,20 @@ export function toast(text) {
 // Fetch before setStyle: a failed request must not tear down the running map.
 export async function switchStyle(map, store, id) {
   if (id === current.value) return true
+  const token = ++switchToken
   let style
   try {
     const res = await fetch(styleUrl(id))
     if (!res.ok) throw new Error('HTTP ' + res.status)
     style = await res.json()
+    if (token !== switchToken) return false
+    map.setStyle(style)
   } catch (err) {
+    if (token !== switchToken) return false
     console.error(err)
     toast('Could not load the ' + id + ' style.')
     return false
   }
-  map.setStyle(style)
   current.value = id
   saveStyle(store, id)
   return true
