@@ -22,6 +22,13 @@ this checkout; edit it if you clone elsewhere. Copy it to
 `~/.local/share/applications/` to add Mapper to the desktop menu, or to
 `~/.config/autostart/` to start it at login.
 
+A desktop or autostart launch does not run a login shell, so it never sees
+the PATH your shell profile builds - an nvm-installed node included. The
+launcher checks PATH first, then falls back to the newest node under
+`$NVM_DIR`, `~/.nvm`, or `~/.config/nvm`. If node lives somewhere else
+entirely, put it on PATH in the `Exec` line of `mapper.desktop`, or symlink
+it into one of those nvm directories.
+
 ## Chromium profile
 
 `~/.config/mapper/chrome` holds the private Chromium profile the launcher

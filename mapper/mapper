@@ -4,17 +4,42 @@
 set -e
 DIR=$(dirname "$(readlink -f "$0")")
 
-[ -f "$DIR/dist/index.html" ] || node "$DIR/build.js"
+find_node() {
+  if command -v node >/dev/null 2>&1; then
+    command -v node
+    return 0
+  fi
+
+  # A desktop launch skips the login shell, so PATH lacks the nvm shims the
+  # user's profile adds; look directly in the nvm install instead.
+  lines=""
+  for base in "${NVM_DIR:-$HOME/.nvm}" "$HOME/.config/nvm"; do
+    for bin in "$base"/versions/node/*/bin/node; do
+      [ -x "$bin" ] || continue
+      ver=${bin%/bin/node}
+      ver=${ver##*/}
+      lines="$lines$ver	$bin
+"
+    done
+  done
+
+  [ -n "$lines" ] || return 1
+  printf '%s' "$lines" | sort -k1,1 -V -r | head -n 1 | cut -f2
+}
+
+NODE=$(find_node) || { echo "mapper: node not found on PATH or in an nvm install" >&2; exit 1; }
+
+[ -f "$DIR/dist/index.html" ] || "$NODE" "$DIR/build.js"
 
 FIFO=$(mktemp -u "${TMPDIR:-/tmp}/mapper.XXXXXX")
 mkfifo "$FIFO"
-node "$DIR/serve.js" >"$FIFO" &
+"$NODE" "$DIR/serve.js" >"$FIFO" &
 SERVER=$!
 # The server may have already exited on its own; kill would fail set -e otherwise.
 trap 'kill "$SERVER" 2>/dev/null || true; rm -f "$FIFO"' EXIT INT TERM
 PORT=$(head -n 1 "$FIFO")
 rm -f "$FIFO"
-[ -n "$PORT" ] || { echo "mapper: serve.js exited without reporting a port (see its output above); most likely another mapper instance already holds the port - set MAPPER_PORT to use a different one" >&2; exit 1; }
+[ -n "$PORT" ] || { echo "mapper: serve.js did not report a port (see its output above); possible causes include the port already being in use or node failing to start - set MAPPER_PORT to try a different port" >&2; exit 1; }
 
 chromium --app="http://127.0.0.1:$PORT" \
          --class=Mapper \

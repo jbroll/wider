@@ -111,12 +111,86 @@ test('the launcher exits nonzero and never opens Chromium when its port is busy'
       env: { ...process.env, PATH: `${fakeBinDir}:${process.env.PATH}`, MAPPER_PORT: String(port) },
     })
     assert.notEqual(result.status, 0)
-    assert.match(result.stderr, /already running|holds the port/)
+    assert.match(result.stderr, /already in use/)
     assert.match(result.stderr, /MAPPER_PORT/)
     assert.equal(fs.existsSync(sentinel), false)
   } finally {
     await new Promise((resolve) => holder.close(resolve))
     fs.rmSync(fakeBinDir, { recursive: true, force: true })
+  }
+})
+
+async function waitForPortFree(port, timeoutMs = 2000) {
+  const deadline = Date.now() + timeoutMs
+  while (Date.now() < deadline) {
+    const free = await new Promise((resolve) => {
+      const socket = net.connect({ host: '127.0.0.1', port, timeout: 200 })
+      socket.once('connect', () => { socket.destroy(); resolve(false) })
+      socket.once('timeout', () => { socket.destroy(); resolve(true) })
+      socket.once('error', () => resolve(true))
+    })
+    if (free) return true
+    await new Promise((resolve) => setTimeout(resolve, 100))
+  }
+  return false
+}
+
+test('the launcher exits nonzero and never opens Chromium when node is nowhere to be found', () => {
+  const fakeBinDir = fs.mkdtempSync(path.join(os.tmpdir(), 'mapper-fake-bin-'))
+  const sentinel = path.join(fakeBinDir, 'chromium-ran')
+  fs.writeFileSync(path.join(fakeBinDir, 'chromium'), `#!/bin/sh\ntouch "${sentinel}"\n`, { mode: 0o755 })
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'mapper-fake-home-'))
+
+  try {
+    const result = spawnSync('sh', [path.join(ROOT, 'mapper')], {
+      encoding: 'utf8',
+      env: {
+        PATH: `${fakeBinDir}:/usr/bin:/bin`,
+        HOME: home,
+        NVM_DIR: path.join(home, 'no-such-nvm'),
+      },
+    })
+    assert.notEqual(result.status, 0)
+    assert.match(result.stderr, /node/)
+    assert.equal(fs.existsSync(sentinel), false)
+  } finally {
+    fs.rmSync(fakeBinDir, { recursive: true, force: true })
+    fs.rmSync(home, { recursive: true, force: true })
+  }
+})
+
+test('the launcher resolves node from an nvm install when node is not on PATH', async () => {
+  const port = await freePort()
+
+  const fakeBinDir = fs.mkdtempSync(path.join(os.tmpdir(), 'mapper-fake-bin-'))
+  const sentinel = path.join(fakeBinDir, 'chromium-ran')
+  fs.writeFileSync(path.join(fakeBinDir, 'chromium'), `#!/bin/sh\ntouch "${sentinel}"\nexit 0\n`, { mode: 0o755 })
+
+  const nvmDir = fs.mkdtempSync(path.join(os.tmpdir(), 'mapper-fake-nvm-'))
+  const nodeBinDir = path.join(nvmDir, 'versions', 'node', 'v22.0.0', 'bin')
+  fs.mkdirSync(nodeBinDir, { recursive: true })
+  fs.writeFileSync(path.join(nodeBinDir, 'node'), `#!/bin/sh\nexec "${process.execPath}" "$@"\n`, { mode: 0o755 })
+
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'mapper-fake-home-'))
+
+  try {
+    execFileSync('node', [path.join(ROOT, 'build.js')], { stdio: 'ignore' })
+    const result = spawnSync('sh', [path.join(ROOT, 'mapper')], {
+      encoding: 'utf8',
+      env: {
+        PATH: `${fakeBinDir}:/usr/bin:/bin`,
+        HOME: home,
+        NVM_DIR: nvmDir,
+        MAPPER_PORT: String(port),
+      },
+    })
+    assert.equal(result.status, 0, result.stderr)
+    assert.equal(fs.existsSync(sentinel), true)
+    assert.equal(await waitForPortFree(port), true)
+  } finally {
+    fs.rmSync(fakeBinDir, { recursive: true, force: true })
+    fs.rmSync(nvmDir, { recursive: true, force: true })
+    fs.rmSync(home, { recursive: true, force: true })
   }
 })
 
