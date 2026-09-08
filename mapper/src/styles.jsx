@@ -28,6 +28,13 @@ let committed = null
 // moved while a switch is in flight is carried by that switch when it lands.
 const transform = (style) => applyColors(applyTweaks(style, tweaks.value), colors.value)
 
+// The saved-place markers are a MapLibre DOM overlay, not a style layer, so
+// applyTweaks never reaches them; this custom property is how Text scales
+// them too.
+const setMarkerScale = (textScale) => {
+  document.documentElement.style.setProperty('--text-scale', textScale)
+}
+
 export function toast(text) {
   message.value = text
   clearTimeout(timer)
@@ -93,6 +100,7 @@ function Toast() {
 export function addStyleControl(map, store, style) {
   current.value = loadStyle(store)
   tweaks.value = loadTweaks(store)
+  setMarkerScale(tweaks.value.textScale)
   colors.value = loadColors(store)
   committed = colors.value
   fetched = style
@@ -106,6 +114,7 @@ export function addStyleControl(map, store, style) {
     const clean = saveTweaks(store, next)
     if (!clean) return
     tweaks.value = clean
+    setMarkerScale(clean.textScale)
     if (fetched) map.setStyle(transform(fetched))
   }
 

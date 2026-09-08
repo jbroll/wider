@@ -55,10 +55,19 @@ function stub() {
 const layer = (style, id) => style.layers.find((l) => l.id === id)
 
 test('the notches and defaults are the listed ones', () => {
-  assert.deepEqual(TEXT_SCALES, [1, 1.1, 1.2, 1.3, 1.4, 1.5])
+  assert.deepEqual(TEXT_SCALES, [1, 1.1, 1.2, 1.3, 1.4, 1.5, 1.6, 1.7, 1.8, 1.9, 2])
   assert.deepEqual(BUILDING_ZOOMS, [13, 14, 15, 16, null])
   assert.deepEqual(DEFAULT_TWEAKS, { textScale: 1, buildingMinZoom: 13 })
   assert.deepEqual(validateTweaks(DEFAULT_TWEAKS), DEFAULT_TWEAKS)
+})
+
+test('the top text scale round-trips through the store and through applyTweaks', () => {
+  const top = { textScale: 2, buildingMinZoom: 13 }
+  const store = fakeStore()
+  assert.deepEqual(saveTweaks(store, top), top)
+  assert.deepEqual(loadTweaks(store), top)
+  const out = applyTweaks(stub(), top)
+  assert.equal(layer(out, 'plain-label').layout['text-size'], 24)
 })
 
 test('a null buildingMinZoom (Off) validates and round-trips through the store and JSON', () => {
@@ -100,7 +109,7 @@ test('an off-notch value or a missing field gives the default tweaks', () => {
 
 test('saving an off-notch value writes nothing', () => {
   const store = fakeStore()
-  assert.equal(saveTweaks(store, { textScale: 2, buildingMinZoom: 13 }), null)
+  assert.equal(saveTweaks(store, { textScale: 3, buildingMinZoom: 13 }), null)
   assert.equal(store.raw.size, 0)
 })
 

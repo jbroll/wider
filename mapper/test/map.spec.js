@@ -375,6 +375,28 @@ test('stepping Text up scales the labels and fetches no style', async ({ page })
   expect(styleRequests).toBe(0)
 })
 
+test('stepping Text to the top reads 200% and disables the up button', async ({ page }) => {
+  await open(page)
+  for (let i = 0; i < 10; i += 1) await page.click(up('text'))
+  await expect(page.locator(reading('text'))).toHaveText('200%')
+  await expect(page.locator(up('text'))).toBeDisabled()
+})
+
+test('stepping Text up grows a saved-place marker', async ({ page }) => {
+  await open(page)
+  const box = await page.locator('#map canvas').boundingBox()
+  await page.mouse.click(box.width / 2, box.height / 2, { button: 'right' })
+  await page.fill('#pin-name', 'Middle')
+  await page.press('#pin-name', 'Enter')
+  await expect(page.locator('.place-marker')).toHaveText('Middle')
+  const before = await page.locator('.place-marker').evaluate((el) => getComputedStyle(el).fontSize)
+  await page.click(up('text'))
+  await expect.poll(() =>
+    page.locator('.place-marker').evaluate((el) => getComputedStyle(el).fontSize)).not.toBe(before)
+  const after = await page.locator('.place-marker').evaluate((el) => getComputedStyle(el).fontSize)
+  expect(parseFloat(after)).toBeGreaterThan(parseFloat(before))
+})
+
 test('stepping Buildings up raises the building layer minzoom', async ({ page }) => {
   await open(page)
   await page.click(up('buildings'))
@@ -400,8 +422,8 @@ test('the steppers disable at the ends of their ranges', async ({ page }) => {
   await expect(page.locator(down('text'))).toBeDisabled()
   await expect(page.locator(down('buildings'))).toBeDisabled()
   await expect(page.locator(up('text'))).toBeEnabled()
-  for (let i = 0; i < 5; i += 1) await page.click(up('text'))
-  await expect(page.locator(reading('text'))).toHaveText('150%')
+  for (let i = 0; i < 10; i += 1) await page.click(up('text'))
+  await expect(page.locator(reading('text'))).toHaveText('200%')
   await expect(page.locator(up('text'))).toBeDisabled()
   await expect(page.locator(down('text'))).toBeEnabled()
   for (let i = 0; i < 4; i += 1) await page.click(up('buildings'))

@@ -185,7 +185,8 @@ html, body {
   border-radius: 3px;
   background: rgba(28, 28, 28, 0.82);
   color: #fff;
-  font: 11px system-ui, sans-serif;
+  font-family: system-ui, sans-serif;
+  font-size: calc(13px * var(--text-scale, 1));
   white-space: nowrap;
   cursor: pointer;
 }
