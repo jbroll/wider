@@ -92,7 +92,7 @@ and never converts a color: it writes only the `#rgb` or `#rrggbb` the user
 picked. Seeding an unset swatch from the current style does need a conversion,
 because the styles write their colors as `#666`, `hsl(...)` and `rgba(...)`
 while `<input type="color">` takes only `#rrggbb`. That code assigns the string
-to a detached element's `style.color` and reads `getComputedStyle` back, which
+to a throwaway element's `style.color` and reads `getComputedStyle` back, which
 the browser normalises to `rgb(r, g, b)`. It needs a DOM, so it lives in
 `colors.jsx` and Playwright covers it rather than `node --test`.
 
