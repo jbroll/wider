@@ -10,7 +10,8 @@
 - Offline tiles and tile caching.
 - Geocoding search.
 - Reading the wider slot configuration.
-- Per-style memory of the Text and Buildings settings. One setting shared by
+- Per-style memory of the Text, Buildings and label color settings. One setting
+  shared by
   all five styles is a statement about the screen, not about Liberty. What a
   style shows at a given zoom is mostly its own zoom-interpolated opacity and
   label collision, which the Buildings floor cannot reach, and beneath that the

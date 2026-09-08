@@ -40,6 +40,27 @@ Both settings apply to whichever style is showing and are saved to
 `localStorage` under `mapper.tweaks`. A missing or unrecognised value falls
 back to 100% text and buildings from zoom 13.
 
+Below the steppers, four color pickers set the label colors:
+
+- **Places** covers town, city and country names.
+- **Streets** covers street and road names.
+- **POIs** covers points of interest and airport names.
+- **Water** covers lake, sea and river names.
+
+Picking a color recolors every label in that group and gives it a white or
+black halo, whichever contrasts. The `×` beside a picker puts the group back to
+the colors the style ships; it is greyed out while the group is unset, and an
+unset picker shows the color the current style gives that group.
+
+Not every style draws every group. Dark and Fiord carry no points of interest,
+and only Liberty, Bright and Positron name airports. A picker for a group the
+current style does not draw still works and is still remembered; it just
+changes nothing on screen until you switch to a style that draws it.
+
+The four colors apply to whichever style is showing and are saved to
+`localStorage` under `mapper.colors`. A missing or unrecognised color leaves
+that group on the style's own colors without disturbing the other three.
+
 ## Saved places
 
 Right-click the map to drop a pin and open a name field. Press Enter to

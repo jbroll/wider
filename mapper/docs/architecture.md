@@ -70,13 +70,31 @@ empty window. A failed startup fetch shows the style-load message directly; a
 body MapLibre rejects still reaches `map.on('error')`, because the map is
 constructed through the validating path.
 
-`styles.jsx` holds the style as fetched, untransformed, so moving a stepper
-re-transforms that held object rather than refetching. `applyTweaks` returns a
-new style for the same reason: the held object is transformed repeatedly, and a
-mutating transform would compound scale on scale. The transform reads the tweak
-values at the moment it applies rather than when the click happened, so a
-stepper moved during an in-flight switch is carried by that switch when it
-lands.
+`styles.jsx` holds the style as fetched, untransformed, so moving a stepper or
+a color picker re-transforms that held object rather than refetching. Two
+transforms compose over it, `applyColors` over `applyTweaks`, in both places a
+style is applied: `main.jsx` at startup and `styles.jsx` on a switch or a
+control move. Both return a new style for the same reason: the held object is
+transformed repeatedly, and a mutating transform would compound scale on scale.
+Each reads its own values at the moment it applies rather than when the click
+happened, so a control moved during an in-flight switch is carried by that
+switch when it lands.
+
+The colors live in their own `mapper.colors` key rather than joining
+`mapper.tweaks` because they fall back differently. A malformed field in
+`mapper.tweaks` resets the whole document, which suits two coupled notches and
+does not suit four independent colors; in `mapper.colors` a bad color falls
+back on its own group. Separate keys also mean a malformed color cannot reset
+the text size.
+
+`colors.js` stays pure and store-argument-taking like the other four modules,
+and never converts a color: it writes only the `#rgb` or `#rrggbb` the user
+picked. Seeding an unset swatch from the current style does need a conversion,
+because the styles write their colors as `#666`, `hsl(...)` and `rgba(...)`
+while `<input type="color">` takes only `#rrggbb`. That code assigns the string
+to a detached element's `style.color` and reads `getComputedStyle` back, which
+the browser normalises to `rgb(r, g, b)`. It needs a DOM, so it lives in
+`colors.jsx` and Playwright covers it rather than `node --test`.
 
 The toast host is appended to `document.body`, not into `#map`, so it
 survives `#map` being blanked by the style-load failure message. `#toast` is
