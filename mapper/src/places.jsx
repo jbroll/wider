@@ -32,8 +32,6 @@ function placeMarker(map, p) {
   return new maplibregl.Marker({ element: el }).setLngLat([p.lon, p.lat]).addTo(map)
 }
 
-// Keyed by place id so a re-run over an unchanged list touches no marker,
-// which is what keeps this from double-adding on re-entry.
 export function attach(map) {
   map.on('contextmenu', (e) => {
     discard()
@@ -49,6 +47,8 @@ export function attach(map) {
     open.value = true
   })
 
+  // Keyed by place id so a re-run over an unchanged list touches no marker,
+  // which is what keeps this from double-adding on re-entry.
   const markers = new Map()
   effect(() => {
     const ids = new Set(places.value.map((p) => p.id))
