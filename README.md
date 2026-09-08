@@ -7,12 +7,14 @@ X11 window management tools for Tcl/Tk.
 - **[wider/](wider/)** - Window arranger using named slots with WM_WINDOW_ROLE identity
 - **[shooter/](shooter/)** - Screenshot capture tool with transparent overlay UI
 - **[tkx/](tkx/)** - X11 extensions for Tcl/Tk (window management, capture, transparency, shapes)
+- **[mapper/](mapper/)** - Full-window OpenStreetMap viewer with saved places
 
 ## Requirements
 
 - Tcl 9.0+, Tk
 - critcl 3.2+ (for building TkX)
 - X11 libraries: libX11, libXext, libXrender
+- Node 22+ and chromium (for mapper)
 
 ## Building
 
