@@ -2,6 +2,7 @@ import { createMap } from './map.js'
 import { loadView, saveView } from './view.js'
 import { loadStyle, styleUrl } from './styles.js'
 import { loadTweaks, applyTweaks } from './tweaks.js'
+import { loadColors, applyColors } from './colors.js'
 import { addStyleControl } from './styles.jsx'
 import { render } from 'preact'
 import { Places, attach } from './places.jsx'
@@ -37,7 +38,8 @@ async function start() {
 
   let map
   try {
-    map = createMap(container, loadView(store), applyTweaks(style, loadTweaks(store)))
+    map = createMap(container, loadView(store),
+      applyColors(applyTweaks(style, loadTweaks(store)), loadColors(store)))
   } catch (err) {
     container.textContent = NO_WEBGL
     console.error(err)

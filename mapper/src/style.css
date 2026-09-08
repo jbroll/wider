@@ -166,6 +166,47 @@ html, body {
   cursor: default;
 }
 
+#styles .color-row {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 8px;
+  color: #111;
+}
+
+#styles .color-label {
+  flex: 1;
+}
+
+#styles .color-swatch {
+  width: 2.6rem;
+  height: 1.4rem;
+  padding: 0;
+  border: 1px solid rgba(0, 0, 0, 0.25);
+  background: none;
+  cursor: pointer;
+}
+
+#styles .color-clear {
+  width: 1.4rem;
+  height: 1.4rem;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: #111;
+  font: inherit;
+  cursor: pointer;
+}
+
+#styles .color-clear:hover:not(:disabled) {
+  background: rgba(0, 0, 0, 0.07);
+}
+
+#styles .color-clear:disabled {
+  color: #aaa;
+  cursor: default;
+}
+
 #toast {
   position: absolute;
   bottom: 24px;

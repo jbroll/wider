@@ -4,6 +4,8 @@ import { signal } from '@preact/signals'
 import { STYLES, DEFAULT_STYLE_ID, loadStyle, saveStyle, styleUrl } from './styles.js'
 import { loadTweaks, saveTweaks, applyTweaks } from './tweaks.js'
 import { tweaks, Steppers } from './tweaks.jsx'
+import { loadColors, saveColors, applyColors } from './colors.js'
+import { colors, styleColors, seedColors, Pickers } from './colors.jsx'
 
 const TOAST_MS = 4000
 
@@ -16,6 +18,10 @@ let switchToken = 0
 // The style as fetched, untransformed. A stepper move re-transforms this same
 // object rather than refetching, so the transform must not mutate it.
 let fetched = null
+
+// Both transforms read their values at the moment they apply, so a picker
+// moved while a switch is in flight is carried by that switch when it lands.
+const transform = (style) => applyColors(applyTweaks(style, tweaks.value), colors.value)
 
 export function toast(text) {
   message.value = text
@@ -43,9 +49,8 @@ export async function switchStyle(map, store, id) {
   }
   if (token !== switchToken) return false
   fetched = style
-  // Read at apply time, not at click time, so a stepper moved while this
-  // switch is in flight is carried by the switch when it lands.
-  map.setStyle(applyTweaks(style, tweaks.value))
+  styleColors.value = seedColors(style)
+  map.setStyle(transform(style))
   // styledata here is not a load confirmation, just the "style changed" tick
   // MapLibre fires once setState accepts the body. A body setState rejects as
   // invalid fires no styledata, so nothing gets persisted for it - that's the
@@ -83,7 +88,9 @@ function Toast() {
 export function addStyleControl(map, store, style) {
   current.value = loadStyle(store)
   tweaks.value = loadTweaks(store)
+  colors.value = loadColors(store)
   fetched = style
+  styleColors.value = seedColors(style)
 
   const host = document.createElement('div')
   document.body.appendChild(host)
@@ -93,7 +100,12 @@ export function addStyleControl(map, store, style) {
     const clean = saveTweaks(store, next)
     if (!clean) return
     tweaks.value = clean
-    if (fetched) map.setStyle(applyTweaks(fetched, clean))
+    if (fetched) map.setStyle(transform(fetched))
+  }
+
+  const changeColors = (next) => {
+    colors.value = saveColors(store, next)
+    if (fetched) map.setStyle(transform(fetched))
   }
 
   map.addControl({
@@ -106,6 +118,8 @@ export function addStyleControl(map, store, style) {
           <Buttons map={map} store={store} />
           <div class="tweak-divider" />
           <Steppers onChange={change} />
+          <div class="tweak-divider" />
+          <Pickers onChange={changeColors} />
         </>,
         el,
       )

@@ -378,3 +378,122 @@ test('a stepper moved during an in-flight switch is carried by that switch', asy
   await expect.poll(() => styleName(page)).toBe('dark')
   await expect.poll(() => textSize(page, 'place-label')).toBeCloseTo(13.2, 5)
 })
+
+const paintOf = (page, id, prop) => page.evaluate(
+  ([layerId, name]) => window.mapper.map.getStyle().layers.find((l) => l.id === layerId).paint[name],
+  [id, prop])
+
+const swatch = (id) => '#styles .color-swatch[data-color="' + id + '"]'
+const clearer = (id) => '#styles .color-clear[data-color="' + id + '"]'
+
+test('setting the Streets color recolors that layer and fetches no style', async ({ page }) => {
+  await open(page)
+  let styleRequests = 0
+  page.on('request', (r) => { if (r.url().includes('/styles/')) styleRequests += 1 })
+  await page.locator(swatch('streets')).fill('#1a1a1a')
+  await expect.poll(() => paintOf(page, 'street-label', 'text-color')).toBe('#1a1a1a')
+  expect(await paintOf(page, 'street-label', 'text-halo-color')).toBe('#ffffff')
+  expect(await paintOf(page, 'street-label', 'text-halo-width')).toBe(1)
+  expect(styleRequests).toBe(0)
+})
+
+test('a light color gets a black halo', async ({ page }) => {
+  await open(page)
+  await page.locator(swatch('places')).fill('#eeeeee')
+  await expect.poll(() => paintOf(page, 'place-label', 'text-halo-color')).toBe('#000000')
+  expect(await paintOf(page, 'place-label', 'text-halo-width')).toBe(1.4)
+})
+
+test('setting a color leaves the other three groups alone', async ({ page }) => {
+  await open(page)
+  await page.locator(swatch('streets')).fill('#1a1a1a')
+  await expect.poll(() => paintOf(page, 'street-label', 'text-color')).toBe('#1a1a1a')
+  expect(await paintOf(page, 'place-label', 'text-color')).toBe('#334455')
+  expect(await paintOf(page, 'poi-label', 'text-color')).toBe('#666666')
+  expect(await paintOf(page, 'water-label', 'text-color')).toBe('hsl(210, 50%, 40%)')
+})
+
+test('the shield layer is untouched by a Streets color', async ({ page }) => {
+  await open(page)
+  await page.locator(swatch('streets')).fill('#1a1a1a')
+  await expect.poll(() => paintOf(page, 'street-label', 'text-color')).toBe('#1a1a1a')
+  expect(await paintOf(page, 'street-shield', 'text-color')).toBe(undefined)
+  expect(await paintOf(page, 'street-shield', 'text-halo-color')).toBe(undefined)
+})
+
+test("an unset swatch shows the style's own color", async ({ page }) => {
+  await open(page)
+  await expect(page.locator(swatch('places'))).toHaveValue('#334455')
+  await expect(page.locator(swatch('streets'))).toHaveValue('#666666')
+  await expect(page.locator(swatch('pois'))).toHaveValue('#666666')
+  await expect(page.locator(swatch('water'))).toHaveValue('#336699')
+})
+
+test('an unset swatch re-seeds when the style is switched', async ({ page }) => {
+  await open(page)
+  await expect(page.locator(swatch('streets'))).toHaveValue('#666666')
+  await page.click('#styles .style-button[data-style="dark"]')
+  await expect.poll(() => styleName(page)).toBe('dark')
+  await expect(page.locator(swatch('streets'))).toHaveValue('#504e4e')
+})
+
+test("clearing a group restores the style's own color", async ({ page }) => {
+  await open(page)
+  await page.locator(swatch('streets')).fill('#1a1a1a')
+  await expect.poll(() => paintOf(page, 'street-label', 'text-color')).toBe('#1a1a1a')
+  await page.click(clearer('streets'))
+  await expect.poll(() => paintOf(page, 'street-label', 'text-color')).toBe('#666666')
+  expect(await paintOf(page, 'street-label', 'text-halo-color')).toBe(undefined)
+  await expect(page.locator(swatch('streets'))).toHaveValue('#666666')
+})
+
+test('the clear button is disabled while its group is unset', async ({ page }) => {
+  await open(page)
+  await expect(page.locator(clearer('streets'))).toBeDisabled()
+  await page.locator(swatch('streets')).fill('#1a1a1a')
+  await expect(page.locator(clearer('streets'))).toBeEnabled()
+  await expect(page.locator(clearer('places'))).toBeDisabled()
+  await page.click(clearer('streets'))
+  await expect(page.locator(clearer('streets'))).toBeDisabled()
+})
+
+test('colors survive a reload', async ({ page }) => {
+  await open(page)
+  await page.locator(swatch('pois')).fill('#7a4f00')
+  await expect.poll(() => page.evaluate(() => localStorage.getItem('mapper.colors')))
+    .toContain('7a4f00')
+  await page.reload()
+  await page.waitForFunction(() => window.mapper && window.mapper.map.loaded())
+  expect(await paintOf(page, 'poi-label', 'text-color')).toBe('#7a4f00')
+  await expect(page.locator(swatch('pois'))).toHaveValue('#7a4f00')
+  await expect(page.locator(swatch('places'))).toHaveValue('#334455')
+})
+
+test('switching style keeps the current colors applied', async ({ page }) => {
+  await open(page)
+  await page.locator(swatch('streets')).fill('#1a1a1a')
+  await expect.poll(() => paintOf(page, 'street-label', 'text-color')).toBe('#1a1a1a')
+  await page.click('#styles .style-button[data-style="dark"]')
+  await expect.poll(() => styleName(page)).toBe('dark')
+  expect(await paintOf(page, 'street-label', 'text-color')).toBe('#1a1a1a')
+  await expect(page.locator(swatch('streets'))).toHaveValue('#1a1a1a')
+})
+
+test('a color set during an in-flight switch is carried by that switch', async ({ page }) => {
+  await open(page)
+  let releaseDark
+  const held = new Promise((resolve) => { releaseDark = resolve })
+  await page.route('**/tiles.openfreemap.org/styles/dark', async (r) => {
+    await held
+    return r.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify(styleFor('dark')),
+    })
+  })
+  await page.click('#styles .style-button[data-style="dark"]')
+  await page.locator(swatch('places')).fill('#1a1a1a')
+  releaseDark()
+  await expect.poll(() => styleName(page)).toBe('dark')
+  await expect.poll(() => paintOf(page, 'place-label', 'text-color')).toBe('#1a1a1a')
+})
