@@ -44,8 +44,21 @@ data, or a quota error) yields a no-op store instead of crashing the page;
 `window.mapper.map` exposes the MapLibre map instance for the Playwright
 specs and for poking at from a browser console.
 
-## Why openfreemap Liberty
+`src/styles.js` holds the style table and the stored-id validation, pure
+and store-argument-taking like `view.js` and `places.js`. `src/styles.jsx`
+is a MapLibre custom control: MapLibre decides where it sits in the
+`top-right` stack and gives it `.maplibregl-ctrl-group`, and Preact renders
+the buttons into the element `onAdd` returns.
 
-The map style is `https://tiles.openfreemap.org/styles/liberty`: vector
-tiles, no API key, whole-planet coverage, and labels that stay upright
-under rotation.
+A switch fetches the style JSON and only then calls `map.setStyle` with the
+parsed object. A failed fetch never reaches `setStyle`, so the running map
+stays up and the stored id and the marked button stay on the style that is
+actually drawn. Startup still passes MapLibre a style URL, which keeps a
+launch-time failure on the existing `map.on('error')` path.
+
+## Why openfreemap
+
+The styles come from `https://tiles.openfreemap.org/styles/`: vector tiles,
+no API key, whole-planet coverage, and labels that stay upright under
+rotation. Liberty is the default. OpenFreeMap's site also names a "3D"
+style, but `/styles/3d` is a 404, so mapper offers the five that answer.
