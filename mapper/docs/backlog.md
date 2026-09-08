@@ -11,6 +11,11 @@
   labels from 6.
 - The vector source ends at zoom 14, so a close-up past that is magnified z14
   data rather than more detail.
+- Pin `applyTweaks`'s structural sharing with a test. At the default tweaks it
+  returns each unchanged layer by identity, not a copy, but the tests only
+  compare by value, so a change that started allocating on every layer would
+  still pass. Nothing depends on the identity today; the transform runs on
+  every stepper move and every switch, so it is worth keeping.
 - Report a source's TileJSON failure. A source that cannot fetch its TileJSON
   fires its error with a `sourceId`, so `main.jsx` treats it as a tile error and
   ignores it, leaving a blank map and a message only in the console. The Liberty
