@@ -21,6 +21,7 @@ npm install && npm run build
 - [Quickstart](docs/quickstart.md)
 - [Install](docs/install.md)
 - [User manual](docs/user-manual.md)
+- [Specification](docs/spec.md)
 - [Architecture](docs/architecture.md)
 - [Development](docs/development.md)
 - [Backlog](docs/backlog.md)

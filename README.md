@@ -7,7 +7,7 @@ X11 window management tools for Tcl/Tk, plus a desktop OpenStreetMap window.
 - **[wider/](wider/)** - Window arranger using named slots with WM_WINDOW_ROLE identity
 - **[shooter/](shooter/)** - Screenshot capture tool with transparent overlay UI
 - **[tkx/](tkx/)** - X11 extensions for Tcl/Tk (window management, capture, transparency, shapes)
-- **[mapper/](mapper/)** - Full-window OpenStreetMap viewer with saved places
+- **[mapper/](mapper/)** - Chromeless OpenStreetMap window with saved places, style controls, and walking routes
 
 ## Requirements
 
