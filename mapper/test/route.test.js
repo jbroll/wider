@@ -84,6 +84,15 @@ test('applyRoute appends exactly one source and one layer', () => {
   assert.equal(layer.source, ROUTE_SOURCE_ID)
 })
 
+test('the route line is drawn as round blue dots, not a solid stroke', () => {
+  const layer = applyRoute(stub(), { geometry: GEOMETRY }).layers.find((l) => l.id === ROUTE_LAYER_ID)
+  assert.equal(layer.layout['line-cap'], 'round')
+  assert.equal(layer.paint['line-dasharray'][0], 0)
+  assert.ok(layer.paint['line-dasharray'][1] > 0)
+  assert.match(layer.paint['line-color'], /^#[0-9a-f]{6}$/i)
+  assert.notEqual(layer.paint['line-color'].toLowerCase(), '#ff5a00')
+})
+
 test('a null or geometry-less route leaves the style unchanged', () => {
   assert.deepEqual(applyRoute(stub(), null), stub())
   assert.deepEqual(applyRoute(stub(), undefined), stub())

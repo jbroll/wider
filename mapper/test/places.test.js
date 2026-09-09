@@ -3,7 +3,7 @@ import assert from 'node:assert/strict'
 
 import {
   PLACES_KEY, validatePlace, parsePlaces, loadPlaces, savePlaces,
-  newId, addPlace, removePlace, renamePlace,
+  newId, addPlace, removePlace, renamePlace, movePlace, reorderPlace,
 } from '../src/places.js'
 
 function fakeStore(seed = {}) {
@@ -81,4 +81,48 @@ test('an invalid entry is dropped and the valid ones survive', () => {
 
 test('bearing is normalized into a single turn', () => {
   assert.equal(validatePlace({ ...HOME, bearing: -90 }).bearing, 270)
+})
+
+test('a place is moved to a new lat/lon by id', () => {
+  const list = movePlace([HOME, WORK], 'a1', 39.5, -84.9)
+  assert.equal(list[0].lat, 39.5)
+  assert.equal(list[0].lon, -84.9)
+  assert.equal(list[1], WORK)
+})
+
+test('moving an unknown id leaves the list unchanged', () => {
+  assert.deepEqual(movePlace([HOME], 'nope', 1, 1), [HOME])
+})
+
+test('moving to an invalid position leaves the place unchanged', () => {
+  const list = movePlace([HOME], 'a1', 99, 0)
+  assert.deepEqual(list, [HOME])
+})
+
+test('move does not mutate the list it was given', () => {
+  const before = [HOME]
+  movePlace(before, 'a1', 1, 1)
+  assert.equal(before[0].lat, HOME.lat)
+})
+
+test('a place is reordered to just before another place', () => {
+  const CHARLIE = { ...HOME, id: 'c3', name: 'Charlie' }
+  const list = reorderPlace([HOME, WORK, CHARLIE], 'c3', 'a1')
+  assert.deepEqual(list.map((p) => p.id), ['c3', 'a1', 'b2'])
+})
+
+test('reordering to the end when there is no target appends it there', () => {
+  const list = reorderPlace([HOME, WORK], 'a1', undefined)
+  assert.deepEqual(list.map((p) => p.id), ['b2', 'a1'])
+})
+
+test('reordering a place before itself, or an unknown id, leaves the list unchanged', () => {
+  assert.deepEqual(reorderPlace([HOME, WORK], 'a1', 'a1').map((p) => p.id), ['a1', 'b2'])
+  assert.deepEqual(reorderPlace([HOME, WORK], 'nope', 'a1').map((p) => p.id), ['a1', 'b2'])
+})
+
+test('reorder does not mutate the list it was given', () => {
+  const before = [HOME, WORK]
+  reorderPlace(before, 'b2', 'a1')
+  assert.deepEqual(before.map((p) => p.id), ['a1', 'b2'])
 })

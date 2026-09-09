@@ -70,6 +70,12 @@ html, body {
   gap: 4px;
 }
 
+.place-drag {
+  flex: none;
+  color: #888;
+  cursor: grab;
+}
+
 .place-check {
   flex: none;
   margin: 0;
@@ -221,6 +227,28 @@ html, body {
 }
 
 .place-marker {
+  position: relative;
+}
+
+.place-pin {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 14px;
+  height: 14px;
+  margin: -7px 0 0 -7px;
+  border-radius: 50%;
+  background: #e63946;
+  border: 2px solid #fff;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.5);
+  cursor: pointer;
+}
+
+.place-label {
+  position: absolute;
+  left: 12px;
+  top: 0;
+  transform: translateY(-50%);
   padding: 2px 6px;
   border-radius: 3px;
   background: rgba(28, 28, 28, 0.82);
@@ -228,7 +256,7 @@ html, body {
   font-family: system-ui, sans-serif;
   font-size: calc(13px * var(--text-scale, 1));
   white-space: nowrap;
-  cursor: pointer;
+  pointer-events: none;
 }
 
 #toast {

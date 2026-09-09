@@ -107,6 +107,27 @@ test('deleting a place removes it from the panel and storage', async ({ page }) 
   expect(stored).not.toContain('a1')
 })
 
+test('dragging a row reorders the list, and the order survives a reload', async ({ page }) => {
+  await open(page)
+  await page.evaluate(() => {
+    localStorage.setItem('mapper.places', JSON.stringify([
+      { id: 'a1', name: 'Alpha', lat: 48.8566, lon: 2.3522, zoom: 12, bearing: 0 },
+      { id: 'b2', name: 'Bravo', lat: 45.75, lon: 4.85, zoom: 12, bearing: 0 },
+    ]))
+  })
+  await page.reload()
+  await page.waitForFunction(() => window.mapper && window.mapper.map.loaded())
+  await expect(page.locator('#places-list .place-name')).toHaveText(['Alpha', 'Bravo'])
+
+  await page.locator('#places-list li:has(.place-name:text-is("Bravo"))')
+    .dragTo(page.locator('#places-list li:has(.place-name:text-is("Alpha"))'))
+  await expect(page.locator('#places-list .place-name')).toHaveText(['Bravo', 'Alpha'])
+
+  await page.reload()
+  await page.waitForFunction(() => window.mapper && window.mapper.map.loaded())
+  await expect(page.locator('#places-list .place-name')).toHaveText(['Bravo', 'Alpha'])
+})
+
 test('a named place gets a marker showing its name', async ({ page }) => {
   await open(page)
   const box = await page.locator('#map canvas').boundingBox()
@@ -114,7 +135,18 @@ test('a named place gets a marker showing its name', async ({ page }) => {
   await expect(page.locator('#pin-name')).toBeVisible()
   await page.fill('#pin-name', 'Middle')
   await page.press('#pin-name', 'Enter')
-  await expect(page.locator('.place-marker')).toHaveText('Middle')
+  await expect(page.locator('.place-label')).toHaveText('Middle')
+})
+
+test('the marker splits a pin at the coordinate from a non-interactive label', async ({ page }) => {
+  await open(page)
+  const box = await page.locator('#map canvas').boundingBox()
+  await page.mouse.click(box.width / 2, box.height / 2, { button: 'right' })
+  await page.fill('#pin-name', 'Middle')
+  await page.press('#pin-name', 'Enter')
+  await expect(page.locator('.place-marker .place-pin')).toHaveCount(1)
+  await expect(page.locator('.place-marker .place-label')).toHaveText('Middle')
+  expect(await page.locator('.place-label').evaluate((el) => getComputedStyle(el).pointerEvents)).toBe('none')
 })
 
 test('deleting a place removes its marker', async ({ page }) => {
@@ -141,7 +173,7 @@ test('a place marker survives a style switch', async ({ page }) => {
   await page.click('#styles .style-button[data-style="dark"]')
   await expect.poll(() => page.evaluate(() => window.mapper.map.getStyle().name)).toBe('dark')
   await expect(page.locator('.place-marker')).toHaveCount(1)
-  await expect(page.locator('.place-marker')).toHaveText('Paris')
+  await expect(page.locator('.place-label')).toHaveText('Paris')
 })
 
 test('clicking a place marker moves the map', async ({ page }) => {
@@ -152,11 +184,102 @@ test('clicking a place marker moves the map', async ({ page }) => {
   })
   await page.reload()
   await page.waitForFunction(() => window.mapper && window.mapper.map.loaded())
-  await page.click('.place-marker')
+  await page.click('.place-pin')
   await expect.poll(() => center(page).then(([lon]) => Math.round(lon))).toBe(2)
   const [lon, lat] = await center(page)
   expect(lat).toBeCloseTo(48.8566, 1)
   expect(lon).toBeCloseTo(2.3522, 1)
+})
+
+async function dragPin(page, name, dx, dy) {
+  const pin = page.locator(`.place-marker:has(.place-label:text-is("${name}")) .place-pin`)
+  const box = await pin.boundingBox()
+  const x = box.x + box.width / 2
+  const y = box.y + box.height / 2
+  await page.mouse.move(x, y)
+  await page.mouse.down()
+  await page.mouse.move(x + dx, y + dy, { steps: 8 })
+  await page.mouse.up()
+}
+
+test('dragging a marker moves the place, persists it, and refetches the route through the new point', async ({ page }) => {
+  await open(page)
+  await page.evaluate(() => {
+    localStorage.setItem('mapper.places', JSON.stringify([
+      { id: 'a1', name: 'Paris', lat: 48.8566, lon: 2.3522, zoom: 12, bearing: 0 },
+      { id: 'b2', name: 'Lyon', lat: 45.75, lon: 4.85, zoom: 12, bearing: 0 },
+    ]))
+  })
+  await page.reload()
+  await page.waitForFunction(() => window.mapper && window.mapper.map.loaded())
+  await page.evaluate(() => window.mapper.map.jumpTo({ center: [2.3522, 48.8566], zoom: 10 }))
+  await page.check('#places-list li:has(.place-name:text-is("Paris")) .place-check')
+  await page.check('#places-list li:has(.place-name:text-is("Lyon")) .place-check')
+  let requestCount = 0
+  let lastBody = null
+  await page.route('**/192.168.1.169:8082/**', (r) => {
+    requestCount += 1
+    lastBody = r.request().postDataJSON()
+    return r.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        type: 'FeatureCollection',
+        features: [{
+          type: 'Feature',
+          geometry: { type: 'LineString', coordinates: [[2.35, 48.85], [4.85, 45.75]] },
+          properties: { segments: [{ distance: 100, duration: 60 }] },
+        }],
+      }),
+    })
+  })
+  await expect.poll(() => requestCount).toBeGreaterThan(0)
+  const before = requestCount
+
+  await dragPin(page, 'Paris', 60, 40)
+
+  const stored = await page.evaluate(
+    () => JSON.parse(localStorage.getItem('mapper.places')).find((p) => p.id === 'a1'))
+  expect(stored.lat).not.toBeCloseTo(48.8566, 3)
+  expect(stored.lon).not.toBeCloseTo(2.3522, 3)
+
+  await expect.poll(() => requestCount).toBeGreaterThan(before)
+  expect(lastBody.coordinates[0][0]).toBeCloseTo(stored.lon, 3)
+  expect(lastBody.coordinates[0][1]).toBeCloseTo(stored.lat, 3)
+})
+
+test('a marker drag does not fly the map', async ({ page }) => {
+  await open(page)
+  await page.evaluate(() => {
+    localStorage.setItem('mapper.places', JSON.stringify(
+      [{ id: 'a1', name: 'Paris', lat: 48.8566, lon: 2.3522, zoom: 12, bearing: 0 }]))
+  })
+  await page.reload()
+  await page.waitForFunction(() => window.mapper && window.mapper.map.loaded())
+  await page.evaluate(() => window.mapper.map.jumpTo({ center: [2.3522, 48.8566], zoom: 10 }))
+  await page.evaluate(() => {
+    window.__flyToCalls = 0
+    const map = window.mapper.map
+    const orig = map.flyTo.bind(map)
+    map.flyTo = (...args) => { window.__flyToCalls += 1; return orig(...args) }
+  })
+  await dragPin(page, 'Paris', 60, 40)
+  expect(await page.evaluate(() => window.__flyToCalls)).toBe(0)
+})
+
+test("an existing marker follows its place when it moves", async ({ page }) => {
+  await open(page)
+  await page.evaluate(() => {
+    localStorage.setItem('mapper.places', JSON.stringify(
+      [{ id: 'a1', name: 'Paris', lat: 48.8566, lon: 2.3522, zoom: 12, bearing: 0 }]))
+  })
+  await page.reload()
+  await page.waitForFunction(() => window.mapper && window.mapper.map.loaded())
+  await page.evaluate(() => window.mapper.map.jumpTo({ center: [2.3522, 48.8566], zoom: 10 }))
+  const before = await page.locator('.place-marker').evaluate((el) => el.style.transform)
+  await dragPin(page, 'Paris', 60, 40)
+  await expect(page.locator('.place-marker')).toHaveCount(1)
+  await expect.poll(() => page.locator('.place-marker').evaluate((el) => el.style.transform)).not.toBe(before)
 })
 
 test('a reload restores the last view', async ({ page }) => {
@@ -272,7 +395,7 @@ test('the view, a saved place and a pending pin survive a switch', async ({ page
   await expect(page.locator('#pin-name')).toHaveValue('Half typed')
   // One marker for the pending pin, one for the saved place.
   await expect(page.locator('.maplibregl-marker')).toHaveCount(2)
-  await expect(page.locator('.place-marker')).toHaveText('Paris')
+  await expect(page.locator('.place-label')).toHaveText('Paris')
 })
 
 test('a later click wins over a slower in-flight switch', async ({ page }) => {
@@ -388,12 +511,12 @@ test('stepping Text up grows a saved-place marker', async ({ page }) => {
   await page.mouse.click(box.width / 2, box.height / 2, { button: 'right' })
   await page.fill('#pin-name', 'Middle')
   await page.press('#pin-name', 'Enter')
-  await expect(page.locator('.place-marker')).toHaveText('Middle')
-  const before = await page.locator('.place-marker').evaluate((el) => getComputedStyle(el).fontSize)
+  await expect(page.locator('.place-label')).toHaveText('Middle')
+  const before = await page.locator('.place-label').evaluate((el) => getComputedStyle(el).fontSize)
   await page.click(up('text'))
   await expect.poll(() =>
-    page.locator('.place-marker').evaluate((el) => getComputedStyle(el).fontSize)).not.toBe(before)
-  const after = await page.locator('.place-marker').evaluate((el) => getComputedStyle(el).fontSize)
+    page.locator('.place-label').evaluate((el) => getComputedStyle(el).fontSize)).not.toBe(before)
+  const after = await page.locator('.place-label').evaluate((el) => getComputedStyle(el).fontSize)
   expect(parseFloat(after)).toBeGreaterThan(parseFloat(before))
 })
 

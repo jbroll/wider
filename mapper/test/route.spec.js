@@ -51,17 +51,67 @@ test('selecting two places auto-draws the route with no button click', async ({ 
   await expect(page.locator('#route-summary')).toHaveText('1.2 km · 15 min')
 })
 
-test('selection order, not list order, sets the coordinate order sent to ORS', async ({ page }) => {
+test('the route layer is drawn dotted and blue', async ({ page }) => {
+  await open(page)
+  await page.route('**/192.168.1.169:8082/**', (r) =>
+    r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(orsResponse()) }))
+  await page.check(check('Alpha'))
+  await page.check(check('Bravo'))
+  await expect.poll(() => hasLayer(page)).toBe(true)
+  const layer = await page.evaluate(
+    (id) => window.mapper.map.getStyle().layers.find((l) => l.id === id), ROUTE_LAYER_ID)
+  expect(layer.layout['line-cap']).toBe('round')
+  expect(layer.paint['line-dasharray'][0]).toBe(0)
+  expect(layer.paint['line-dasharray'][1]).toBeGreaterThan(0)
+  expect(layer.paint['line-color']).toMatch(/^#[0-9a-f]{6}$/i)
+})
+
+test('list order, not selection order, sets the coordinate order sent to ORS', async ({ page }) => {
   await open(page)
   const requested = page.waitForRequest('**/192.168.1.169:8082/**')
   await page.route('**/192.168.1.169:8082/**', (r) =>
     r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(orsResponse()) }))
+  // Ticked out of list order (Alpha, Bravo, Charlie): if the request followed
+  // tick order it would read Charlie, Alpha, Bravo instead.
   await page.check(check('Charlie'))
   await page.check(check('Alpha'))
   await page.check(check('Bravo'))
   const req = await requested
   const body = req.postDataJSON()
   expect(body.coordinates).toEqual([
+    [-73.9396, 42.8142],
+    [-73.931, 42.809],
+    [-73.92, 42.82],
+  ])
+  await expect(page.locator('#places-list li:has(.place-name:text-is("Alpha")) .place-order')).toHaveText('1')
+  await expect(page.locator('#places-list li:has(.place-name:text-is("Bravo")) .place-order')).toHaveText('2')
+  await expect(page.locator('#places-list li:has(.place-name:text-is("Charlie")) .place-order')).toHaveText('3')
+})
+
+test('the order badges show each row its position in list order, not tick order', async ({ page }) => {
+  await open(page)
+  await page.route('**/192.168.1.169:8082/**', (r) =>
+    r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(orsResponse()) }))
+  await page.check(check('Bravo'))
+  await page.check(check('Alpha'))
+  await expect(page.locator('#places-list li:has(.place-name:text-is("Alpha")) .place-order')).toHaveText('1')
+  await expect(page.locator('#places-list li:has(.place-name:text-is("Bravo")) .place-order')).toHaveText('2')
+})
+
+test('reordering rows changes the coordinate order sent to ORS', async ({ page }) => {
+  await open(page)
+  await page.route('**/192.168.1.169:8082/**', (r) =>
+    r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(orsResponse()) }))
+  await page.check(check('Alpha'))
+  await page.check(check('Bravo'))
+  await page.check(check('Charlie'))
+  await expect.poll(() => hasLayer(page)).toBe(true)
+
+  const requested = page.waitForRequest('**/192.168.1.169:8082/**')
+  await page.locator('#places-list li:has(.place-name:text-is("Charlie"))')
+    .dragTo(page.locator('#places-list li:has(.place-name:text-is("Alpha"))'))
+  const req = await requested
+  expect(req.postDataJSON().coordinates).toEqual([
     [-73.92, 42.82],
     [-73.9396, 42.8142],
     [-73.931, 42.809],
@@ -69,16 +119,6 @@ test('selection order, not list order, sets the coordinate order sent to ORS', a
   await expect(page.locator('#places-list li:has(.place-name:text-is("Charlie")) .place-order')).toHaveText('1')
   await expect(page.locator('#places-list li:has(.place-name:text-is("Alpha")) .place-order')).toHaveText('2')
   await expect(page.locator('#places-list li:has(.place-name:text-is("Bravo")) .place-order')).toHaveText('3')
-})
-
-test('the selection order badges show each row its position', async ({ page }) => {
-  await open(page)
-  await page.route('**/192.168.1.169:8082/**', (r) =>
-    r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(orsResponse()) }))
-  await page.check(check('Bravo'))
-  await page.check(check('Alpha'))
-  await expect(page.locator('#places-list li:has(.place-name:text-is("Bravo")) .place-order')).toHaveText('1')
-  await expect(page.locator('#places-list li:has(.place-name:text-is("Alpha")) .place-order')).toHaveText('2')
 })
 
 test('deselecting down to one place clears the route', async ({ page }) => {

@@ -67,7 +67,7 @@ export function attachRoute(m) {
   })
 
   effect(() => {
-    const ids = selected.value
+    const ids = places.value.filter((p) => selected.value.includes(p.id)).map((p) => p.id)
     clearTimeout(timer)
     timer = setTimeout(() => run(ids), SAVE_DELAY)
   })

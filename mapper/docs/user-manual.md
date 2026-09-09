@@ -71,22 +71,30 @@ Right-click the map to drop a pin and open a name field. Press Enter to
 save it, Escape to discard the pin without saving.
 
 Saved places appear in the panel at the top-left, and each also gets a
-marker on the map showing its name. Clicking a place's name in the panel,
-or its marker, flies the map back to its saved center, zoom, and bearing.
-The `×` button next to a place deletes it and removes its marker. The list
-is stored in `localStorage` under `mapper.places`.
+marker on the map: a round pin at the exact coordinate with its name in a
+label beside it. Clicking a place's name in the panel, or its pin, flies the
+map back to its saved center, zoom, and bearing. Dragging the pin moves the
+place - dropping it updates the stored position and, if the place is part of
+the current route, redraws the route through the new point. The `×` button
+next to a place deletes it and removes its marker. The list is stored in
+`localStorage` under `mapper.places`.
 
 The panel header (`Places (N)`) is a toggle: click it to collapse or
-expand the list.
+expand the list. The handle (`⠿`) at the left of each row drags the row to
+reorder the list; the new order is saved immediately and survives a reload.
 
 ## Walking routes
 
 Each saved place has a checkbox in the panel list. Checking two or more draws
-a walking route through them **in the order they were checked**, not list
-order; each checked row shows its position (1, 2, 3, …). The route redraws
-automatically as the selection changes - there is no button to press - and a
-short pause after the last click keeps a run of clicks from firing a request
-per click.
+a walking route through them **in list order**, the same order the rows
+appear in the panel; each checked row shows its position (1, 2, 3, …) in
+that order. Dragging a row to a new position reorders the route along with
+the list. The route redraws automatically as the selection or the list order
+changes - there is no button to press - and a short pause after the last
+change keeps a run of clicks or a drag from firing a request per step.
+
+The route is drawn as a line of round blue dots, evenly spaced along the
+path.
 
 Routing is walking only and covers the Schenectady, New York area only; it
 needs a self-hosted routing service on the local network, so it does not work

@@ -1,14 +1,14 @@
 import { signal, effect } from '@preact/signals'
 import maplibregl from 'maplibre-gl'
 
-import { loadPlaces, savePlaces, addPlace, removePlace, newId } from './places.js'
+import { loadPlaces, savePlaces, addPlace, removePlace, movePlace, reorderPlace, newId } from './places.js'
 import { store } from './store.js'
 
 export const places = signal(loadPlaces(store))
 const open = signal(true)
 const pending = signal(null)
 
-// Selection order is the route's waypoint order, so this is a list, not a set.
+// Membership only - waypoint order comes from list order, not from this.
 export const selected = signal([])
 
 export function toggleSelected(id) {
@@ -29,15 +29,42 @@ function goTo(map, p) {
   map.flyTo({ center: [p.lon, p.lat], zoom: p.zoom, bearing: p.bearing })
 }
 
+// The marker element is a zero-size container, so the pin - not the
+// container's bounding box - has to carry the anchor: it sits centered on
+// the container's own origin, which MapLibre places at the coordinate.
 function placeMarker(map, p) {
   const el = document.createElement('div')
   el.className = 'place-marker'
-  el.textContent = p.name
-  el.addEventListener('click', (e) => {
+
+  const pin = document.createElement('div')
+  pin.className = 'place-pin'
+
+  const label = document.createElement('div')
+  label.className = 'place-label'
+  label.textContent = p.name
+
+  el.append(pin, label)
+
+  const entry = { place: p, label }
+
+  pin.addEventListener('click', (e) => {
     e.stopPropagation()
-    goTo(map, p)
+    goTo(map, entry.place)
   })
-  return new maplibregl.Marker({ element: el }).setLngLat([p.lon, p.lat]).addTo(map)
+
+  entry.marker = new maplibregl.Marker({ element: el, draggable: true })
+    .setLngLat([p.lon, p.lat])
+    .addTo(map)
+
+  // MapLibre sets the element's pointer-events to none for the duration of a
+  // drag, so the pin's click listener never fires for a drag - verified in
+  // test/map.spec.js rather than assumed.
+  entry.marker.on('dragend', () => {
+    const { lat, lng } = entry.marker.getLngLat()
+    commit(movePlace(places.value, entry.place.id, lat, lng))
+  })
+
+  return entry
 }
 
 export function attach(map) {
@@ -55,19 +82,29 @@ export function attach(map) {
     open.value = true
   })
 
-  // Keyed by place id so a re-run over an unchanged list touches no marker,
-  // which is what keeps this from double-adding on re-entry.
+  // Keyed by place id so a re-run over an unchanged list touches no marker.
+  // savePlaces rebuilds every place object on each commit, so an unchanged
+  // entry is detected by comparing lat/lon/name values, not identity.
   const markers = new Map()
   effect(() => {
     const ids = new Set(places.value.map((p) => p.id))
-    for (const [id, marker] of markers) {
+    for (const [id, entry] of markers) {
       if (!ids.has(id)) {
-        marker.remove()
+        entry.marker.remove()
         markers.delete(id)
       }
     }
     for (const p of places.value) {
-      if (!markers.has(p.id)) markers.set(p.id, placeMarker(map, p))
+      const entry = markers.get(p.id)
+      if (!entry) {
+        markers.set(p.id, placeMarker(map, p))
+        continue
+      }
+      if (entry.place.lat !== p.lat || entry.place.lon !== p.lon || entry.place.name !== p.name) {
+        entry.marker.setLngLat([p.lon, p.lat])
+        entry.label.textContent = p.name
+        entry.place = p
+      }
     }
   })
 }
@@ -84,6 +121,24 @@ export function Places({ map }) {
   }
 
   const go = (p) => goTo(map, p)
+
+  // The order badge and the route both read this same list-order filter, so
+  // dragging a row changes both together.
+  const orderedSelected = places.value.filter((p) => selected.value.includes(p.id)).map((p) => p.id)
+
+  const onDragStart = (id) => (e) => {
+    e.dataTransfer.effectAllowed = 'move'
+    e.dataTransfer.setData('text/plain', id)
+  }
+  const onDragOver = (e) => {
+    e.preventDefault()
+    e.dataTransfer.dropEffect = 'move'
+  }
+  const onDrop = (beforeId) => (e) => {
+    e.preventDefault()
+    const id = e.dataTransfer.getData('text/plain')
+    if (id && id !== beforeId) commit(reorderPlace(places.value, id, beforeId))
+  }
 
   return (
     <div id="places">
@@ -105,9 +160,17 @@ export function Places({ map }) {
           )}
           <ul id="places-list">
             {places.value.map((p) => {
-              const order = selected.value.indexOf(p.id)
+              const order = orderedSelected.indexOf(p.id)
               return (
-                <li class="place" key={p.id}>
+                <li
+                  class="place"
+                  key={p.id}
+                  draggable
+                  onDragStart={onDragStart(p.id)}
+                  onDragOver={onDragOver}
+                  onDrop={onDrop(p.id)}
+                >
+                  <span class="place-drag" title="Drag to reorder">⠿</span>
                   <input
                     type="checkbox"
                     class="place-check"

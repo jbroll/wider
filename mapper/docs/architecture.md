@@ -45,9 +45,32 @@ data, or a quota error) yields a no-op store instead of crashing the page;
 specs and for poking at from a browser console.
 
 Each saved place gets a MapLibre `Marker` DOM overlay, not a style layer, so
-it survives a style switch without being re-added. `places.jsx` reconciles
-the marker set against the `places` signal inside an `effect`, keyed by
-place id so an unrelated signal update touches no marker.
+it survives a style switch without being re-added. Its element is one
+zero-size container with two absolutely-positioned children, a pin and a
+label, rather than two `Marker`s per place - a single container keeps one
+drag target and one object to reconcile. The container has no size of its
+own, so MapLibre's `translate(-50%,-50%)` centering places the container's
+own origin, not some visible box, at the coordinate; the pin is centered on
+that origin so its exact center marks the point, and the label sits offset
+beside it with `pointer-events: none` so it never steals the drag or the
+click. `places.jsx` reconciles the marker set against the `places` signal
+inside an `effect`, keyed by place id so an unrelated signal update touches
+no marker; because `savePlaces` rebuilds every place object on each commit,
+the effect diffs by the place's lat/lon/name values rather than by object
+identity; an unchanged entry gets neither a `setLngLat` nor a label update.
+
+A marker is draggable; dropping it calls the pure `movePlace` (`places.js`)
+and commits the result, the same path a panel edit uses. MapLibre suppresses
+the marker's own click while a drag is in progress (it sets the element's
+`pointer-events` to `none` for the duration), which is what keeps a drag from
+also flying the map to the place - verified in `test/map.spec.js` rather than
+assumed.
+
+Rows in the places list reorder by native HTML5 drag-and-drop (`draggable`,
+`dragstart`/`dragover`/`drop` on the `<li>`) rather than a pointer-tracking
+library, because Playwright's `locator.dragTo()` drives that API directly.
+The drop handler calls the pure `reorderPlace` (`places.js`) and commits the
+result, the same `commit` every other places edit uses.
 
 `src/styles.js` holds the style table and the stored-id validation, pure
 and store-argument-taking like `view.js` and `places.js`. `src/styles.jsx`
@@ -134,20 +157,34 @@ startup, and `styles.jsx`'s `transform` closure). It must be a transform
 rather than an added `map.addSource`/`map.addLayer` pair for the same reason
 `applyTweaks` and `applyColors` are: `map.setStyle` runs on every switch,
 stepper move and color commit, and that call destroys anything added outside
-the style body it is given.
+the style body it is given. The layer draws as round blue dots rather than a
+solid stroke: `line-cap: 'round'` with a `line-dasharray` of `[0, 2]` turns
+each zero-length dash into a dot the width of the line, spaced by the second
+element in line-width units. A `circle` layer on the route geometry was
+rejected - circles land on the LineString's vertices, which ORS spaces by
+road geometry rather than evenly, so the dots would cluster at corners and
+thin out along straights.
 
-`route.jsx` holds the selection (`selected`, an array of place ids in the
-order they were checked) and the fetched `route` signal, and drives both from
-one place: `attachRoute(map)` sets up two `effect`s. One prunes `selected` of
-an id whose place got deleted, reusing the identity-preserving idiom
+`route.jsx` holds the selection (`selected`, membership only - which places
+are in the route) and the fetched `route` signal, and drives both from one
+place: `attachRoute(map)` sets up two `effect`s. One prunes `selected` of an
+id whose place got deleted, reusing the identity-preserving idiom
 `places.jsx` already uses for its marker set - a no-op write when nothing
-changed - so pruning cannot loop against the second effect. The second reads
-`selected` and debounces the fetch 300ms after the last change, the same
-constant and shape as `main.jsx`'s `moveend` save, so ticking several
-checkboxes in a row sends one request. Fewer than two selected places (after
-pruning) clears the route rather than fetching; deleting a checked place is
-just the prune effect shrinking `selected`, so it re-routes through what
-remains instead of clearing outright, unless that drops it below two.
+changed - so pruning cannot loop against the second effect. The second
+filters `places.value` down to the selected ids, in list order, and debounces
+the fetch 300ms after the last change, the same constant and shape as
+`main.jsx`'s `moveend` save, so ticking several checkboxes - or dragging a
+row - in a row sends one request. Waypoint order is list order, not tick
+order, so dragging a row in the panel reorders the route; the same filter
+also drives the order badge in `places.jsx`. Reading `places.value` in this
+effect means any place edit re-triggers it, including one that leaves the
+selected set's coordinates unchanged; that is what makes a marker drag
+re-route through the new position without a separate wiring path, at the
+cost of an occasional redundant fetch the debounce absorbs anyway. Fewer than
+two selected places (after pruning) clears the route rather than fetching;
+deleting a checked place is just the prune effect shrinking `selected`, so it
+re-routes through what remains instead of clearing outright, unless that
+drops it below two.
 
 A request in flight is tracked with a token, the same pattern `switchStyle`
 uses, so a selection change that lands while an earlier fetch is still out

@@ -48,7 +48,12 @@ export function applyRoute(style, route) {
     type: 'line',
     source: ROUTE_SOURCE_ID,
     layout: { 'line-cap': 'round', 'line-join': 'round' },
-    paint: { 'line-color': '#ff5a00', 'line-width': 5, 'line-opacity': 0.9 },
+    paint: {
+      'line-color': '#4285f4',
+      'line-width': 7,
+      'line-opacity': 0.95,
+      'line-dasharray': [0, 2],
+    },
   }
   return {
     ...style,

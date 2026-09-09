@@ -52,3 +52,25 @@ export function removePlace(places, id) {
 export function renamePlace(places, id, name) {
   return places.map((p) => (p.id === id ? { ...p, name } : p))
 }
+
+export function movePlace(places, id, lat, lon) {
+  return places.map((p) => {
+    if (p.id !== id) return p
+    const moved = validatePlace({ ...p, lat, lon })
+    return moved || p
+  })
+}
+
+// Moves the place `id` to just before `beforeId`; a `beforeId` that is
+// missing or not found appends it at the end instead.
+export function reorderPlace(places, id, beforeId) {
+  if (id === beforeId) return [...places]
+  const idx = places.findIndex((p) => p.id === id)
+  if (idx < 0) return [...places]
+  const item = places[idx]
+  const rest = places.filter((p) => p.id !== id)
+  const targetIdx = rest.findIndex((p) => p.id === beforeId)
+  if (targetIdx < 0) return [...rest, item]
+  rest.splice(targetIdx, 0, item)
+  return rest
+}
