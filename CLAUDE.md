@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-Wider is a Tcl/Tk window arranger for X11 Linux desktops. It manages window positions using named "slots" with WM_WINDOW_ROLE identity, enabling reliable multi-window layouts and position swapping. The project also includes TkX, a C extension for X11 features not available in standard Tk, and shooter, a screenshot capture tool.
+Wider is a Tcl/Tk window arranger for X11 Linux desktops. It manages window positions using named "slots" with WM_WINDOW_ROLE identity, enabling reliable multi-window layouts and position swapping. The project also includes TkX, a C extension for X11 features not available in standard Tk, shooter, a screenshot capture tool, and mapper, a chromeless OpenStreetMap window.
 
 ## Building and Running
 
@@ -120,6 +120,30 @@ The `get_window_type` proc handles three window decoration types that require di
 - **csd**: Client-side decorations (has _MOTIF_WM_HINTS) - use relative offset
 - **ssd**: Server-side decorations - add frame extents to offset
 
+## mapper
+
+A Node/Preact/MapLibre subproject in an otherwise Tcl repository, with its own
+doc set: [spec](mapper/docs/spec.md) for the feature set,
+[architecture](mapper/docs/architecture.md) for why it is built this way,
+[development](mapper/docs/development.md) for build and test,
+[backlog](mapper/docs/backlog.md) for open defects.
+
+Quirks that bite:
+
+- The app serves one built file. Editing `mapper/src/` changes nothing at
+  runtime until `npm run build` rewrites `dist/index.html`.
+- Never add a route, marker or overlay with `map.addSource`/`map.addLayer`.
+  `map.setStyle` runs on every style switch, stepper move and color commit, and
+  destroys anything added outside the style body. New map content goes in the
+  pure transform chain in `src/styles.jsx` instead.
+- A new Playwright spec must be added to `testMatch` in
+  `playwright.config.js` or it silently never runs.
+- The routing tests need the self-hosted OpenRouteService whose address is
+  hardcoded in `src/route.js`. They fail off that local network.
+- Port 8737 is fixed on purpose: `localStorage` is origin-keyed, and every
+  saved setting depends on the origin being stable across launches. Only one
+  instance runs at a time.
+
 ### External Dependencies
 
 - `wmctrl` - Window manager control CLI
@@ -128,3 +152,4 @@ The `get_window_type` proc handles three window decoration types that require di
 - `critcl` - For building TkX extension
 - Tcl 9.0+, Tk
 - X11 libraries: libX11, libXext, libXrender
+- Node 22+ and `chromium` (mapper only)
