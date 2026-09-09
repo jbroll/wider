@@ -79,6 +79,29 @@ is stored in `localStorage` under `mapper.places`.
 The panel header (`Places (N)`) is a toggle: click it to collapse or
 expand the list.
 
+## Walking routes
+
+Each saved place has a checkbox in the panel list. Checking two or more draws
+a walking route through them **in the order they were checked**, not list
+order; each checked row shows its position (1, 2, 3, …). The route redraws
+automatically as the selection changes - there is no button to press - and a
+short pause after the last click keeps a run of clicks from firing a request
+per click.
+
+Routing is walking only and covers the Schenectady, New York area only; it
+needs a self-hosted routing service on the local network, so it does not work
+away from that network. Once a route is drawn, its distance and duration show
+below the panel, with a button to clear it. Unchecking down to fewer than two
+places, deleting a checked place, or clicking Clear also clears the route -
+deleting a checked place re-routes through whatever remains checked rather
+than clearing outright, as long as two or more are still checked.
+
+If the routing service cannot be reached, a message says so. If the two
+points are outside the routable area, a different message says that instead.
+
+The route is not saved - a reload starts with nothing checked and no route
+drawn.
+
 ## No WebGL
 
 If the browser cannot create a WebGL context, the map area shows one line

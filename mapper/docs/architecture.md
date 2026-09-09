@@ -123,6 +123,58 @@ always in the document and carries `hidden` when there is no message, so its
 `aria-live` region exists before the text lands in it. A test asserting the
 toast is absent wants `toBeHidden()`, not `toHaveCount(0)`.
 
+## Routing
+
+`route.js` is pure, like `colors.js`: it holds the ORS base URL and profile,
+builds the request body, parses the response, and `applyRoute` appends a
+GeoJSON source and a `line` layer for the route - the third transform in the
+chain, `applyRoute(applyColors(applyTweaks(style, tweaks), colors), route)`,
+composed identically at both places a style is applied (`main.jsx` at
+startup, and `styles.jsx`'s `transform` closure). It must be a transform
+rather than an added `map.addSource`/`map.addLayer` pair for the same reason
+`applyTweaks` and `applyColors` are: `map.setStyle` runs on every switch,
+stepper move and color commit, and that call destroys anything added outside
+the style body it is given.
+
+`route.jsx` holds the selection (`selected`, an array of place ids in the
+order they were checked) and the fetched `route` signal, and drives both from
+one place: `attachRoute(map)` sets up two `effect`s. One prunes `selected` of
+an id whose place got deleted, reusing the identity-preserving idiom
+`places.jsx` already uses for its marker set - a no-op write when nothing
+changed - so pruning cannot loop against the second effect. The second reads
+`selected` and debounces the fetch 300ms after the last change, the same
+constant and shape as `main.jsx`'s `moveend` save, so ticking several
+checkboxes in a row sends one request. Fewer than two selected places (after
+pruning) clears the route rather than fetching; deleting a checked place is
+just the prune effect shrinking `selected`, so it re-routes through what
+remains instead of clearing outright, unless that drops it below two.
+
+A request in flight is tracked with a token, the same pattern `switchStyle`
+uses, so a selection change that lands while an earlier fetch is still out
+does not let the stale response overwrite it.
+
+Setting or clearing the route calls `reapplyStyle`, exported from
+`styles.jsx`: `map.setStyle(transform(fetched))` using the same private
+`fetched` and `transform` that a stepper move or color commit already use.
+That is what makes a route drawn now survive a later switch, stepper move or
+color commit - it is re-derived from the held style on every one of those,
+not drawn once and left for the next `setStyle` to erase.
+
+`places.jsx` renders the checkbox and order badge per row, reading `selected`
+and calling `toggleSelected` from `route.jsx`; `route.jsx` reads the `places`
+signal `places.jsx` exports and calls `toast`/`reapplyStyle` from
+`styles.jsx`, and `styles.jsx` reads the `route` signal from `route.jsx` for
+`transform`. That makes `route.jsx` the hub of two import cycles
+(`places.jsx` <-> `route.jsx`, `styles.jsx` <-> `route.jsx`). Nothing at
+module top level uses another module's export - every use is inside a
+function, render, or effect callback, run only after the whole graph has
+loaded - so the cycles resolve under normal ES module live-binding semantics
+and esbuild's bundling of them.
+
+The route is transient by design: `route.js` and `route.jsx` never touch
+`localStorage`, so a reload always starts with nothing selected and no route
+drawn.
+
 ## Why openfreemap
 
 The styles come from `https://tiles.openfreemap.org/styles/`: vector tiles,

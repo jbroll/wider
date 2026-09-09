@@ -14,7 +14,7 @@ test('the build inlines everything into one document', async () => {
 
 // The style is the only origin the page fetches. Everything else the bundle
 // names is a link target in MapLibre's attribution and logo controls.
-const REACHABLE = new Set(['https://tiles.openfreemap.org'])
+const REACHABLE = new Set(['https://tiles.openfreemap.org', 'http://192.168.1.169:8082'])
 const LINKED = new Set(['https://maplibre.org'])
 // An XML namespace, and an issue-tracker URL inside a console warning string.
 // Neither is fetched or a link the page renders.

@@ -3,8 +3,9 @@ import maplibregl from 'maplibre-gl'
 
 import { loadPlaces, savePlaces, addPlace, removePlace, newId } from './places.js'
 import { store } from './store.js'
+import { selected, toggleSelected } from './route.jsx'
 
-const places = signal(loadPlaces(store))
+export const places = signal(loadPlaces(store))
 const open = signal(true)
 const pending = signal(null)
 
@@ -96,12 +97,23 @@ export function Places({ map }) {
             />
           )}
           <ul id="places-list">
-            {places.value.map((p) => (
-              <li class="place" key={p.id}>
-                <button class="place-name" onClick={() => go(p)}>{p.name}</button>
-                <button class="place-del" title="Delete" onClick={() => commit(removePlace(places.value, p.id))}>×</button>
-              </li>
-            ))}
+            {places.value.map((p) => {
+              const order = selected.value.indexOf(p.id)
+              return (
+                <li class="place" key={p.id}>
+                  <input
+                    type="checkbox"
+                    class="place-check"
+                    title="Include in route"
+                    checked={order >= 0}
+                    onChange={() => toggleSelected(p.id)}
+                  />
+                  <span class="place-order">{order >= 0 ? order + 1 : ''}</span>
+                  <button class="place-name" onClick={() => go(p)}>{p.name}</button>
+                  <button class="place-del" title="Delete" onClick={() => commit(removePlace(places.value, p.id))}>×</button>
+                </li>
+              )
+            })}
           </ul>
         </div>
       )}

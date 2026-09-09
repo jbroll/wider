@@ -6,6 +6,8 @@ import { loadTweaks, saveTweaks, applyTweaks } from './tweaks.js'
 import { tweaks, Steppers } from './tweaks.jsx'
 import { loadColors, saveColors, applyColors } from './colors.js'
 import { colors, styleColors, seedColors, Pickers } from './colors.jsx'
+import { applyRoute } from './route.js'
+import { route } from './route.jsx'
 
 const TOAST_MS = 4000
 
@@ -24,9 +26,18 @@ let fetched = null
 // a commit persists, so a dismissed preview can never be spread by a later one.
 let committed = null
 
-// Both transforms read their values at the moment they apply, so a picker
-// moved while a switch is in flight is carried by that switch when it lands.
-const transform = (style) => applyColors(applyTweaks(style, tweaks.value), colors.value)
+// All three transforms read their values at the moment they apply, so a
+// picker moved - or a route drawn - while a switch is in flight is carried
+// by that switch when it lands.
+const transform = (style) =>
+  applyRoute(applyColors(applyTweaks(style, tweaks.value), colors.value), route.value)
+
+// route.jsx calls this after selection changes, so the route is drawn
+// through the same transform as every other style change instead of an
+// added layer that the next setStyle would throw away.
+export function reapplyStyle(map) {
+  if (fetched) map.setStyle(transform(fetched))
+}
 
 // The saved-place markers are a MapLibre DOM overlay, not a style layer, so
 // applyTweaks never reaches them; this custom property is how Text scales

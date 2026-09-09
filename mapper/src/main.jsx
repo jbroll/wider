@@ -3,6 +3,8 @@ import { loadView, saveView } from './view.js'
 import { loadStyle, styleUrl } from './styles.js'
 import { loadTweaks, applyTweaks } from './tweaks.js'
 import { loadColors, applyColors } from './colors.js'
+import { applyRoute } from './route.js'
+import { route, attachRoute, RouteStatus } from './route.jsx'
 import { addStyleControl } from './styles.jsx'
 import { render } from 'preact'
 import { Places, attach } from './places.jsx'
@@ -39,7 +41,7 @@ async function start() {
   let map
   try {
     map = createMap(container, loadView(store),
-      applyColors(applyTweaks(style, loadTweaks(store)), loadColors(store)))
+      applyRoute(applyColors(applyTweaks(style, loadTweaks(store)), loadColors(store)), route.value))
   } catch (err) {
     container.textContent = NO_WEBGL
     console.error(err)
@@ -71,7 +73,8 @@ async function start() {
 
   attach(map)
   addStyleControl(map, store, style)
-  render(<Places map={map} />, document.getElementById('panel'))
+  attachRoute(map)
+  render(<><Places map={map} /><RouteStatus /></>, document.getElementById('panel'))
 
   window.mapper = { map }
 }
