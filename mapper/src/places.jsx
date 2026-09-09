@@ -3,11 +3,18 @@ import maplibregl from 'maplibre-gl'
 
 import { loadPlaces, savePlaces, addPlace, removePlace, newId } from './places.js'
 import { store } from './store.js'
-import { selected, toggleSelected } from './route.jsx'
 
 export const places = signal(loadPlaces(store))
 const open = signal(true)
 const pending = signal(null)
+
+// Selection order is the route's waypoint order, so this is a list, not a set.
+export const selected = signal([])
+
+export function toggleSelected(id) {
+  const cur = selected.value
+  selected.value = cur.includes(id) ? cur.filter((x) => x !== id) : [...cur, id]
+}
 
 function commit(next) {
   places.value = savePlaces(store, next)

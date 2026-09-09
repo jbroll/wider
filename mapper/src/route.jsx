@@ -1,6 +1,6 @@
 import { signal, effect } from '@preact/signals'
 
-import { places } from './places.jsx'
+import { places, selected } from './places.jsx'
 import { toast, reapplyStyle } from './styles.jsx'
 import { directionsUrl, buildBody, parseRoute, formatDistance, formatDuration } from './route.js'
 
@@ -9,13 +9,7 @@ const SAVE_DELAY = 300
 const UNREACHABLE = 'Could not reach the routing service. Is mapper on the local network?'
 const NOT_ROUTABLE = 'No walking route there; routing only covers the Schenectady area.'
 
-export const selected = signal([])
 export const route = signal(null)
-
-export function toggleSelected(id) {
-  const cur = selected.value
-  selected.value = cur.includes(id) ? cur.filter((x) => x !== id) : [...cur, id]
-}
 
 let map = null
 let timer = 0
