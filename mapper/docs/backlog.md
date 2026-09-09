@@ -42,3 +42,10 @@
   pending persist, leaving the new style drawn with the old button marked and
   the old id stored. It is about one frame wide and it is the one case where
   the control does not show the style that is actually displayed.
+- `attachRoute`'s refetch effect in `src/route.jsx` reads all of
+  `places.value`, so editing or dragging a place that isn't selected still
+  schedules a debounced refetch of an unchanged route. Comparing selected ids
+  alone won't fix it - a marker drag of a selected place changes its
+  coordinates without changing its id, and that case does need a refetch.
+  The fix is to key the effect off a signature of the selected places'
+  coordinates instead of the raw list.

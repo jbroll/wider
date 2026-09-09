@@ -7,6 +7,7 @@ import { store } from './store.js'
 export const places = signal(loadPlaces(store))
 const open = signal(true)
 const pending = signal(null)
+const dragging = signal(false)
 
 // Membership only - waypoint order comes from list order, not from this.
 export const selected = signal([])
@@ -129,15 +130,28 @@ export function Places({ map }) {
   const onDragStart = (id) => (e) => {
     e.dataTransfer.effectAllowed = 'move'
     e.dataTransfer.setData('text/plain', id)
+    dragging.value = true
   }
+  const onDragEnd = () => { dragging.value = false }
   const onDragOver = (e) => {
     e.preventDefault()
     e.dataTransfer.dropEffect = 'move'
   }
   const onDrop = (beforeId) => (e) => {
     e.preventDefault()
+    // Stops the drop from also reaching the list's own onDrop below, which
+    // would append the place instead of inserting it before this row.
+    e.stopPropagation()
     const id = e.dataTransfer.getData('text/plain')
     if (id && id !== beforeId) commit(reorderPlace(places.value, id, beforeId))
+  }
+  // Catches a drop anywhere in the list that isn't on a row - the dropzone
+  // element included, since it has no drop handler of its own and lets the
+  // event bubble here. beforeId matches nothing, so reorderPlace appends.
+  const onListDrop = (e) => {
+    e.preventDefault()
+    const id = e.dataTransfer.getData('text/plain')
+    if (id) commit(reorderPlace(places.value, id, undefined))
   }
 
   return (
@@ -158,7 +172,12 @@ export function Places({ map }) {
               }}
             />
           )}
-          <ul id="places-list">
+          <ul
+            id="places-list"
+            class={dragging.value ? 'dragging' : undefined}
+            onDragOver={onDragOver}
+            onDrop={onListDrop}
+          >
             {places.value.map((p) => {
               const order = orderedSelected.indexOf(p.id)
               return (
@@ -167,6 +186,7 @@ export function Places({ map }) {
                   key={p.id}
                   draggable
                   onDragStart={onDragStart(p.id)}
+                  onDragEnd={onDragEnd}
                   onDragOver={onDragOver}
                   onDrop={onDrop(p.id)}
                 >
@@ -184,6 +204,7 @@ export function Places({ map }) {
                 </li>
               )
             })}
+            <li class="place-dropzone" aria-hidden="true" />
           </ul>
         </div>
       )}

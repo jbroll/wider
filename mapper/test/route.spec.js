@@ -121,6 +121,29 @@ test('reordering rows changes the coordinate order sent to ORS', async ({ page }
   await expect(page.locator('#places-list li:has(.place-name:text-is("Bravo")) .place-order')).toHaveText('3')
 })
 
+test('dragging a place to the end of the list makes it the last waypoint sent to ORS', async ({ page }) => {
+  await open(page)
+  await page.route('**/192.168.1.169:8082/**', (r) =>
+    r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(orsResponse()) }))
+  await page.check(check('Alpha'))
+  await page.check(check('Bravo'))
+  await page.check(check('Charlie'))
+  await expect.poll(() => hasLayer(page)).toBe(true)
+
+  const requested = page.waitForRequest('**/192.168.1.169:8082/**')
+  await page.locator('#places-list li:has(.place-name:text-is("Alpha"))')
+    .dragTo(page.locator('#places-list .place-dropzone'))
+  const req = await requested
+  expect(req.postDataJSON().coordinates).toEqual([
+    [-73.931, 42.809],
+    [-73.92, 42.82],
+    [-73.9396, 42.8142],
+  ])
+  await expect(page.locator('#places-list li:has(.place-name:text-is("Bravo")) .place-order')).toHaveText('1')
+  await expect(page.locator('#places-list li:has(.place-name:text-is("Charlie")) .place-order')).toHaveText('2')
+  await expect(page.locator('#places-list li:has(.place-name:text-is("Alpha")) .place-order')).toHaveText('3')
+})
+
 test('deselecting down to one place clears the route', async ({ page }) => {
   await open(page)
   await page.route('**/192.168.1.169:8082/**', (r) =>

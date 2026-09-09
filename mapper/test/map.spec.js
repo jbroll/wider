@@ -128,6 +128,28 @@ test('dragging a row reorders the list, and the order survives a reload', async 
   await expect(page.locator('#places-list .place-name')).toHaveText(['Bravo', 'Alpha'])
 })
 
+test('dragging a place past the last row moves it to the end, and the order survives a reload', async ({ page }) => {
+  await open(page)
+  await page.evaluate(() => {
+    localStorage.setItem('mapper.places', JSON.stringify([
+      { id: 'a1', name: 'Alpha', lat: 48.8566, lon: 2.3522, zoom: 12, bearing: 0 },
+      { id: 'b2', name: 'Bravo', lat: 45.75, lon: 4.85, zoom: 12, bearing: 0 },
+      { id: 'c3', name: 'Charlie', lat: 41.9, lon: 12.5, zoom: 12, bearing: 0 },
+    ]))
+  })
+  await page.reload()
+  await page.waitForFunction(() => window.mapper && window.mapper.map.loaded())
+  await expect(page.locator('#places-list .place-name')).toHaveText(['Alpha', 'Bravo', 'Charlie'])
+
+  await page.locator('#places-list li:has(.place-name:text-is("Alpha"))')
+    .dragTo(page.locator('#places-list .place-dropzone'))
+  await expect(page.locator('#places-list .place-name')).toHaveText(['Bravo', 'Charlie', 'Alpha'])
+
+  await page.reload()
+  await page.waitForFunction(() => window.mapper && window.mapper.map.loaded())
+  await expect(page.locator('#places-list .place-name')).toHaveText(['Bravo', 'Charlie', 'Alpha'])
+})
+
 test('a named place gets a marker showing its name', async ({ page }) => {
   await open(page)
   const box = await page.locator('#map canvas').boundingBox()

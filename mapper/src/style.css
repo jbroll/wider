@@ -118,6 +118,17 @@ html, body {
   color: #b00;
 }
 
+.place-dropzone {
+  height: 14px;
+}
+
+#places-list.dragging .place-dropzone {
+  margin: 2px 4px 4px;
+  border: 1px dashed rgba(0, 0, 0, 0.35);
+  border-radius: 3px;
+  background: rgba(0, 0, 0, 0.05);
+}
+
 #styles .style-button {
   display: block;
   width: auto;

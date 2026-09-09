@@ -81,7 +81,8 @@ next to a place deletes it and removes its marker. The list is stored in
 
 The panel header (`Places (N)`) is a toggle: click it to collapse or
 expand the list. The handle (`⠿`) at the left of each row drags the row to
-reorder the list; the new order is saved immediately and survives a reload.
+reorder the list; dropping past the last row moves it to the end. The new
+order is saved immediately and survives a reload.
 
 ## Walking routes
 
