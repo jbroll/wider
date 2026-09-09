@@ -71,8 +71,9 @@ Right-click the map to drop a pin and open a name field. Press Enter to
 save it, Escape to discard the pin without saving.
 
 Saved places appear in the panel at the top-left, and each also gets a
-marker on the map: a round pin at the exact coordinate with its name in a
-label beside it. Clicking a place's name in the panel, or its pin, flies the
+marker on the map: the same pin used for the right-click pending marker, at
+the exact coordinate, with its name in a label beside it. Clicking a place's
+name in the panel, or its pin, flies the
 map back to its saved center, zoom, and bearing. Dragging the pin moves the
 place - dropping it updates the stored position and, if the place is part of
 the current route, redraws the route through the new point. The `×` button

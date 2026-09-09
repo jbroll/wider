@@ -166,9 +166,59 @@ test('the marker splits a pin at the coordinate from a non-interactive label', a
   await page.mouse.click(box.width / 2, box.height / 2, { button: 'right' })
   await page.fill('#pin-name', 'Middle')
   await page.press('#pin-name', 'Enter')
-  await expect(page.locator('.place-marker .place-pin')).toHaveCount(1)
+  await expect(page.locator('.place-marker svg')).toHaveCount(1)
   await expect(page.locator('.place-marker .place-label')).toHaveText('Middle')
   expect(await page.locator('.place-label').evaluate((el) => getComputedStyle(el).pointerEvents)).toBe('none')
+})
+
+test('a saved-place marker uses the same icon as the pending pin', async ({ page }) => {
+  await open(page)
+  const box = await page.locator('#map canvas').boundingBox()
+  await page.mouse.click(box.width / 2, box.height / 2, { button: 'right' })
+  await expect(page.locator('#pin-name')).toBeVisible()
+  const pendingSvg = await page.locator('.maplibregl-marker svg').innerHTML()
+  await page.fill('#pin-name', 'Middle')
+  await page.press('#pin-name', 'Enter')
+  const savedSvg = await page.locator('.place-marker svg').innerHTML()
+  expect(savedSvg).toBe(pendingSvg)
+})
+
+// MapLibre's default marker anchors 'center' with offset [0, -14] (see
+// maplibre-gl's Marker constructor), placing the SVG teardrop's tip - not
+// the element's own box - at the coordinate.
+const DEFAULT_MARKER_OFFSET = { x: 0, y: -14 }
+
+async function markerAnchor(page, selector) {
+  return page.evaluate(([sel, offset]) => {
+    const map = window.mapper.map
+    const canvas = map.getCanvasContainer().getBoundingClientRect()
+    const rect = document.querySelector(sel).getBoundingClientRect()
+    return {
+      x: rect.left + rect.width / 2 - canvas.left - offset.x,
+      y: rect.top + rect.height / 2 - canvas.top - offset.y,
+    }
+  }, [selector, DEFAULT_MARKER_OFFSET])
+}
+
+test('a saved-place marker anchors on its stored coordinate, before and after panning and zooming', async ({ page }) => {
+  await open(page)
+  await page.evaluate(() => {
+    localStorage.setItem('mapper.places', JSON.stringify(
+      [{ id: 'a1', name: 'Paris', lat: 48.8566, lon: 2.3522, zoom: 12, bearing: 0 }]))
+  })
+  await page.reload()
+  await page.waitForFunction(() => window.mapper && window.mapper.map.loaded())
+
+  const checkAnchor = async () => {
+    const projected = await page.evaluate(() => window.mapper.map.project([2.3522, 48.8566]))
+    const anchor = await markerAnchor(page, '.place-marker')
+    expect(Math.abs(anchor.x - projected.x)).toBeLessThanOrEqual(2)
+    expect(Math.abs(anchor.y - projected.y)).toBeLessThanOrEqual(2)
+  }
+
+  await checkAnchor()
+  await page.evaluate(() => window.mapper.map.jumpTo({ center: [10, 30], zoom: 6, bearing: 20 }))
+  await checkAnchor()
 })
 
 test('deleting a place removes its marker', async ({ page }) => {
@@ -206,7 +256,7 @@ test('clicking a place marker moves the map', async ({ page }) => {
   })
   await page.reload()
   await page.waitForFunction(() => window.mapper && window.mapper.map.loaded())
-  await page.click('.place-pin')
+  await page.click('.place-marker')
   await expect.poll(() => center(page).then(([lon]) => Math.round(lon))).toBe(2)
   const [lon, lat] = await center(page)
   expect(lat).toBeCloseTo(48.8566, 1)
@@ -214,7 +264,7 @@ test('clicking a place marker moves the map', async ({ page }) => {
 })
 
 async function dragPin(page, name, dx, dy) {
-  const pin = page.locator(`.place-marker:has(.place-label:text-is("${name}")) .place-pin`)
+  const pin = page.locator(`.place-marker:has(.place-label:text-is("${name}"))`)
   const box = await pin.boundingBox()
   const x = box.x + box.width / 2
   const y = box.y + box.height / 2

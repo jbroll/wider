@@ -30,38 +30,32 @@ function goTo(map, p) {
   map.flyTo({ center: [p.lon, p.lat], zoom: p.zoom, bearing: p.bearing })
 }
 
-// The marker element is a zero-size container, so the pin - not the
-// container's bounding box - has to carry the anchor: it sits centered on
-// the container's own origin, which MapLibre places at the coordinate.
+// No custom element: MapLibre's own default marker is the pin, so it's the
+// same icon as the pending pin and MapLibre owns the anchor math. The label
+// is appended to the marker's own element, absolutely positioned so it
+// carries no layout weight and can't shift where MapLibre anchors the pin.
 function placeMarker(map, p) {
-  const el = document.createElement('div')
-  el.className = 'place-marker'
+  const marker = new maplibregl.Marker({ draggable: true })
+    .setLngLat([p.lon, p.lat])
+    .addTo(map)
 
-  const pin = document.createElement('div')
-  pin.className = 'place-pin'
+  const el = marker.getElement()
+  el.classList.add('place-marker')
 
   const label = document.createElement('div')
   label.className = 'place-label'
   label.textContent = p.name
+  el.append(label)
 
-  el.append(pin, label)
-
-  const entry = { place: p, label }
-
-  pin.addEventListener('click', (e) => {
-    e.stopPropagation()
-    goTo(map, entry.place)
-  })
-
-  entry.marker = new maplibregl.Marker({ element: el, draggable: true })
-    .setLngLat([p.lon, p.lat])
-    .addTo(map)
+  const entry = { place: p, label, marker }
 
   // MapLibre sets the element's pointer-events to none for the duration of a
-  // drag, so the pin's click listener never fires for a drag - verified in
-  // test/map.spec.js rather than assumed.
-  entry.marker.on('dragend', () => {
-    const { lat, lng } = entry.marker.getLngLat()
+  // drag, so this never fires for a drag - verified in test/map.spec.js
+  // rather than assumed.
+  marker.on('click', () => goTo(map, entry.place))
+
+  marker.on('dragend', () => {
+    const { lat, lng } = marker.getLngLat()
     commit(movePlace(places.value, entry.place.id, lat, lng))
   })
 

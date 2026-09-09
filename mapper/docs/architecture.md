@@ -45,15 +45,16 @@ data, or a quota error) yields a no-op store instead of crashing the page;
 specs and for poking at from a browser console.
 
 Each saved place gets a MapLibre `Marker` DOM overlay, not a style layer, so
-it survives a style switch without being re-added. Its element is one
-zero-size container with two absolutely-positioned children, a pin and a
-label, rather than two `Marker`s per place - a single container keeps one
-drag target and one object to reconcile. The container has no size of its
-own, so MapLibre's `translate(-50%,-50%)` centering places the container's
-own origin, not some visible box, at the coordinate; the pin is centered on
-that origin so its exact center marks the point, and the label sits offset
-beside it with `pointer-events: none` so it never steals the drag or the
-click. `places.jsx` reconciles the marker set against the `places` signal
+it survives a style switch without being re-added. It's a plain
+`new maplibregl.Marker({ draggable: true })` with no custom `element`, the
+same icon MapLibre draws for the pending right-click pin, so both read as
+the same mark and MapLibre's own anchor math (not ours) puts the pin's tip
+on the coordinate. The name label is appended to the marker's own element
+(`marker.getElement()`), absolutely positioned so it carries no layout
+weight and can't shift where MapLibre anchors the pin, with
+`pointer-events: none` so it never steals the drag or the click - one
+element keeps one drag target and one object to reconcile, rather than two
+`Marker`s per place. `places.jsx` reconciles the marker set against the `places` signal
 inside an `effect`, keyed by place id so an unrelated signal update touches
 no marker; because `savePlaces` rebuilds every place object on each commit,
 the effect diffs by the place's lat/lon/name values rather than by object
