@@ -2,18 +2,47 @@
 
 ## Requirements
 
-- Node 22+
+- Node 22+ (`engines` in `package.json`)
 - `chromium` on `PATH`
 - X11
+
+npm dependencies: `maplibre-gl` ^5.0.0, `preact` ^10.29.8, `@preact/signals`
+^1.3.4, `esbuild` ^0.24.0, and `@playwright/test` ^1.49.0 for the browser
+tests.
+
+Network services, both outside this project:
+
+- Map styles and vector tiles from `https://tiles.openfreemap.org/styles/<id>`.
+  No API key.
+- Walking routes from a self-hosted OpenRouteService at
+  `http://192.168.1.169:8082/ors`. Without it everything but routing works.
 
 ## Install
 
 ```bash
 npm install
+npm run build
 ```
 
-from `mapper/`. `npm run build` (or the first run of `./mapper`) bundles
-`src/` into `dist/index.html`.
+from `mapper/`. `npm run build` bundles `src/` into `dist/index.html`. The
+first run of `./mapper` does the same if `dist/index.html` is missing.
+
+## Upgrade
+
+```bash
+git pull
+npm install
+npm run build
+```
+
+The launcher builds only when `dist/index.html` is missing, so after a pull it
+keeps serving the old build until `npm run build` runs.
+
+## Routing service
+
+The OpenRouteService address and the `foot-walking` profile are constants
+(`ORS_BASE_URL`, `PROFILE`) at the top of `src/route.js`. To use a different
+server, change `ORS_BASE_URL` and rebuild.
 
 ## Desktop menu and autostart
 
@@ -23,9 +52,9 @@ this checkout; edit it if you clone elsewhere. Copy it to
 `~/.config/autostart/` to start it at login.
 
 A desktop or autostart launch does not run a login shell, so it never sees
-the PATH your shell profile builds - an nvm-installed node included. The
+the PATH your shell profile builds, an nvm-installed node included. The
 launcher checks PATH first, then falls back to the newest node under
-`$NVM_DIR`, `~/.nvm`, or `~/.config/nvm`. If node lives somewhere else
+`$NVM_DIR` (default `~/.nvm`) or `~/.config/nvm`. If node lives somewhere else
 entirely, put it on PATH in the `Exec` line of `mapper.desktop`, or symlink
 it into one of those nvm directories.
 
@@ -33,20 +62,20 @@ it into one of those nvm directories.
 
 `~/.config/mapper/chrome` holds the private Chromium profile the launcher
 passes as `--user-data-dir`. Deleting it resets the window, including the
-`localStorage` that holds the saved view and places.
+`localStorage` that holds the saved view, style, settings and places.
 
 ## Port
 
-`serve.js` listens on `127.0.0.1:8737` by default, so the saved view and
-places persist across launches. Set `MAPPER_PORT` to use a different port.
-If the port is already in use, the launcher stops with an error instead of
-opening a window.
+`serve.js` listens on `127.0.0.1:8737` by default, so the saved settings
+persist across launches: `localStorage` is keyed by origin, and a different
+port is a different origin with none of them. Set `MAPPER_PORT` to use a
+different port. If the port is already in use, the launcher stops with an
+error instead of opening a window.
 
 Only one instance runs at a time. If a first launch is already running on
 the default port and a second launch sets `MAPPER_PORT` to a free port,
 its `serve.js` starts, but Chromium's profile singleton hands the new URL
 to the already-running Chromium process instead of starting a new one. The
 second launcher's `chromium` command returns immediately, so its `EXIT`
-trap kills the server it just started - the same server now backing the
-tab that singleton just opened. Launching a second instance on a different
-port does not work.
+trap kills the server it just started, which is the server backing the tab
+the singleton just opened.

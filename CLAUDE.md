@@ -20,8 +20,8 @@ tclsh wider/wider.tcl --arrange    # Snap windows to slot positions
 tclsh wider/wider.tcl --launch     # Launch missing apps from slots
 tclsh wider/wider.tcl --generate   # Generate slots.tcl from layout.tcl
 tclsh wider/wider.tcl --autostart  # Generate ~/.config/autostart/*.desktop files
-tclsh wider/wider.tcl --save       # Save window snapshot (legacy)
-tclsh wider/wider.tcl --restore    # Restore from snapshot (legacy)
+tclsh wider/wider.tcl --save       # Save the current layout
+tclsh wider/wider.tcl --restore    # Restore the saved layout
 
 # Screenshot capture tool (requires 32-bit visual)
 shooter/shooter
@@ -32,98 +32,32 @@ tclsh wider/test_roundtrip.tcl     # Integration test (window positioning)
 tclsh tkx/test_shape.tcl           # TkX shape extension test
 ```
 
-## Slot System
+## wider, TkX and shooter
 
-Slots define named window positions in `~/.config/wider/slots.tcl`:
+Slot format, GUI buttons, monitor mode and autostart are documented in
+[wider/README.md](wider/README.md). The TkX C extension's full API is in
+[tkx/README.md](tkx/README.md). The `win::` and `slot::` APIs are listed in
+header comments at the top of `wider/windows.tcl` and `wider/slots.tcl`; those
+headers are the reference, so update them with the code.
 
-```tcl
-slot terminal-left {
-    role     terminal-left
-    class    Xfce4-terminal
-    geometry 960x1080+0+0
-    command  {xfce4-terminal --role=terminal-left}
-}
-```
+Quirks that bite:
 
-- **role**: WM_WINDOW_ROLE for identity matching
-- **class**: Fallback WM_CLASS for singleton apps
-- **geometry**: X11 geometry string (WxH+X+Y)
-- **command**: Launch command (apps without --role support get role set via xprop)
-
-Windows with the same role but different slot positions are **swappable** - drag one near another's slot to swap them.
-
-## Architecture
-
-### Core Components
-
-- **wider/wider.tcl**: Slot editor GUI with window list and monitoring
-
-  **Window List:**
-  - Checkbox column to toggle managed/unmanaged state
-  - Editable role, geometry, and command (double-click to edit)
-  - Focus highlighting (blue) follows active window
-  - All edits auto-save slots.tcl and regenerate autostart files
-
-  **Buttons:**
-  - **Refresh**: Reload window list from X11, updating positions and properties
-  - **Save**: Save current window positions to their slot configs and regenerate autostart files (opposite of Arrange). Workflow: Monitor OFF → move windows → Refresh → Save → Monitor ON.
-  - **Arrange**: Move windows to their slot positions. One window per slot, no duplicates.
-  - **Launch**: Start apps for slots that have a `command` but no matching window
-  - **Monitor**: Toggle position monitoring ON/OFF
-
-  **Monitor Mode (when ON):**
-  - Polls window positions every 500ms via `assign_and_snap_slots`
-  - Windows within 150px of a matching slot snap into position
-  - The active window (being dragged) is not moved
-  - **Swap detection**: If two windows with the same role are near the same slot, they swap positions
-
-- **wider/wmctrl.tcl**: Core library in the `wm::` namespace:
-
-  **Window Management:**
-  - `wm::windows` - Lists windows with id, desktop, pid, position, size, class, cmdline, role
-  - `wm::move id ?desktop? x y ?w h?` - Moves/resizes with offset compensation
-  - `wm::state id add|remove|toggle prop...` - Changes window state
-  - `wm::xprop id ?prop? ?value?` - Gets/sets X11 properties
-  - `wm::get_role id` / `wm::set_role id role` - WM_WINDOW_ROLE access
-  - `wm::parse_geometry geom` - Parse X11 geometry string
-
-  **Slot Management:**
-  - `wm::load_slots` / `wm::save_slots` - Load/save slot configuration
-  - `wm::find_window_for_slot slot` - Find window by role (or class fallback)
-  - `wm::find_slot_for_window id` - Find slot for window
-  - `wm::arrange_slot slot` / `wm::arrange_all` - Move windows to slot positions
-  - `wm::swap_slots slot1 slot2` - Swap windows between slots
-  - `wm::launch_slot slot` / `wm::launch_all` - Launch missing apps
-  - `wm::generate_slots` - Generate slots.tcl from layout.tcl
-  - `wm::generate_autostart` - Generate ~/.config/autostart/wider-*.desktop files
-
-  **Legacy (snapshot-based):**
-  - `wm::save` / `wm::restore` - Save/restore by class+size matching
-
-- **tkx/TkX.tcl**: Critcl-based X11 extension package (in `tkx/` subdirectory) providing:
-  - `TkX::capture` - Capture window/screen region to Tk photo image
-  - `TkX::input_hole/reset` - X11 Shape extension for click-through regions
-  - `TkX::bounding_hole/reset` - Visual transparency holes
-  - `TkX::shape_watch` - ShapeNotify event callbacks
-  - `TkX::nodecor` - Remove window decorations
-  - `TkX::move/resize` - WM-controlled window operations via _NET_WM_MOVERESIZE
-  - `TkX::frame_offset` - Get offset from Tk window to WM frame
-  - `TkX::rgba_*` - 32-bit ARGB visual support (overlay windows, transparency)
-  - `TkX::grab_focus` - Keyboard focus for overrideredirect windows
-
-- **shooter/shooter.tcl**: Screenshot capture tool with transparent frame UI. Uses TkX for click-through transparency and screen capture. Requires 32-bit visual (use `shooter/shooter` wrapper).
-
-### Window Type Detection
-
-The `get_window_type` proc handles three window decoration types that require different coordinate offsets:
-- **gtk**: Parent is root window - coordinates need halving (HiDPI scaling)
-- **csd**: Client-side decorations (has _MOTIF_WM_HINTS) - use relative offset
-- **ssd**: Server-side decorations - add frame extents to offset
+- A slot is keyed by role, not by name, and one role holds a list of positions:
+  `role -> {class C command CMD positions {{x X y Y w W h H} ...}}`.
+  Two windows sharing a role is the normal case, and it is what makes them
+  swappable.
+- `wider/wmctrl.tcl` and the `wm::` namespace are gone. The code is split into
+  `windows.tcl` (`win::`, X11 operations over TkX), `slots.tcl` (`slot::`,
+  configuration and arrangement), `winlist.tcl`, `monitor.tcl` and `ui.tcl`.
+- Nothing in `wider/` or `shooter/` runs until `make` builds TkX into
+  `tkx/lib/TkX/`. A missing build surfaces as a `package require TkX` failure.
+- shooter needs a 32-bit visual and must be started through the `shooter/shooter`
+  wrapper, which passes `-visual "truecolor 32"` to wish.
 
 ## mapper
 
 A Node/Preact/MapLibre subproject in an otherwise Tcl repository, with its own
-doc set: [spec](mapper/docs/spec.md) for the feature set,
+doc set: [user manual](mapper/docs/user-manual.md) for the feature set,
 [architecture](mapper/docs/architecture.md) for why it is built this way,
 [development](mapper/docs/development.md) for build and test,
 [backlog](mapper/docs/backlog.md) for open defects.
@@ -138,18 +72,17 @@ Quirks that bite:
   pure transform chain in `src/styles.jsx` instead.
 - A new Playwright spec must be added to `testMatch` in
   `playwright.config.js` or it silently never runs.
-- The routing tests need the self-hosted OpenRouteService whose address is
-  hardcoded in `src/route.js`. They fail off that local network.
+- The routing specs stub the OpenRouteService address hardcoded in
+  `src/route.js` with `page.route`, and `test/pw.js` aborts every other
+  non-loopback request, so tests never reach a real network service.
 - Port 8737 is fixed on purpose: `localStorage` is origin-keyed, and every
   saved setting depends on the origin being stable across launches. Only one
   instance runs at a time.
 
-### External Dependencies
+## External Dependencies
 
-- `wmctrl` - Window manager control CLI
-- `xprop` - X11 property utility
-- `xwininfo` - X11 window info utility
 - `critcl` - For building TkX extension
+- `xrandr` - Monitor enumeration (shooter only)
 - Tcl 9.0+, Tk
 - X11 libraries: libX11, libXext, libXrender
 - Node 22+ and `chromium` (mapper only)

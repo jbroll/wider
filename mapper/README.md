@@ -1,8 +1,14 @@
 # mapper
 
-A chromeless desktop OpenStreetMap window. It runs as its own X11 window
-with `WM_CLASS` `Mapper`, so wider can place it in a slot like any other
-application.
+A chromeless desktop OpenStreetMap window for X11, for people who arrange
+their desktop with wider and want a map that sits in a slot like any other
+application. It runs as a Chromium `--app` window with `WM_CLASS` `Mapper`,
+and has saved places, five map styles, label size and color controls, and
+walking routes between saved places.
+
+```bash
+./mapper
+```
 
 ## Install
 
@@ -10,18 +16,11 @@ application.
 npm install && npm run build
 ```
 
-## Run
-
-```bash
-./mapper
-```
-
 ## Docs
 
 - [Quickstart](docs/quickstart.md)
 - [Install](docs/install.md)
 - [User manual](docs/user-manual.md)
-- [Specification](docs/spec.md)
 - [Architecture](docs/architecture.md)
 - [Development](docs/development.md)
 - [Backlog](docs/backlog.md)

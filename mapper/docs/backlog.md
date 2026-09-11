@@ -1,5 +1,12 @@
 # Backlog
 
+- Configurable routing service. The ORS base URL
+  (`http://192.168.1.169:8082/ors`) and the `foot-walking` profile are
+  hardcoded in `src/route.js`, so changing either means editing and
+  rebuilding, and routing works only on that one network.
+- A second instance. Launching with a different `MAPPER_PORT` while one is
+  running hands the URL to the running Chromium, then the second launcher's
+  exit trap kills the server behind the new tab.
 - Offline tiles and tile caching.
 - Geocoding search.
 - Reading the wider slot configuration.

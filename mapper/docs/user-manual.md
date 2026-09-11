@@ -1,5 +1,17 @@
 # User manual
 
+## Launching
+
+```bash
+./mapper      # or: npm start
+```
+
+The launcher builds `dist/index.html` if it is missing, starts the page server
+on `127.0.0.1:8737`, and opens a chromeless Chromium window on it. Closing the
+window stops the server. Set `MAPPER_PORT` to use another port; if the port is
+taken, the launcher exits with an error and opens no window. Only one instance
+runs at a time (see [install.md](install.md#port)).
+
 ## Navigation
 
 - **Pan**: left-drag.
@@ -24,11 +36,12 @@ restored on the next launch; a missing or unrecognised value falls back to
 Liberty.
 
 Switching fetches the new style before applying it, so a style that will
-not load leaves the map as it is and shows a short-lived message at the
-bottom of the window instead. The centre, zoom, bearing, saved places and a
-half-typed pin all survive a switch.
+not load leaves the map as it is and shows "Could not load the `<Name>` style."
+at the bottom of the window. The centre, zoom, bearing, saved places, the
+current route and a half-typed pin all survive a switch.
 
-Below the style buttons, two steppers adjust how the chosen style draws:
+Below the style buttons, two steppers adjust how the chosen style draws. The
+`−` and `+` buttons grey out at the ends of the range.
 
 - **Text** scales every label in the style, from 100% to 200% in ten-point
   steps. It also scales the saved-place markers, so they stay legible
@@ -52,9 +65,11 @@ Below the steppers, four color pickers set the label colors:
 - **Water** covers lake, sea and river names.
 
 Picking a color recolors every label in that group and gives it a white or
-black halo, whichever contrasts. The `×` beside a picker puts the group back to
-the colors the style ships; it is greyed out while the group is unset, and an
-unset picker shows the color the current style gives that group.
+black halo, whichever contrasts. The map follows the picker while its dialog
+is open; the color is saved when the dialog closes. The `×` beside a picker
+puts the group back to the colors the style ships; it is greyed out while the
+group is unset, and an unset picker shows the color the current style gives
+that group.
 
 Not every style draws every group. Dark and Fiord carry no points of interest,
 and only Liberty, Bright and Positron name airports. A picker for a group the
@@ -65,60 +80,75 @@ The four colors apply to whichever style is showing and are saved to
 `localStorage` under `mapper.colors`. A missing or unrecognised color leaves
 that group on the style's own colors without disturbing the other three.
 
+Text, Buildings and the four colors are one setting shared by all five styles,
+not remembered per style.
+
 ## Saved places
 
 Right-click the map to drop a pin and open a name field. Press Enter to
-save it, Escape to discard the pin without saving.
+save it, Escape to discard the pin without saving. An empty name saves as
+`Unnamed`. A place remembers its position and the zoom and bearing at the
+moment the pin was dropped.
 
-Saved places appear in the panel at the top-left, and each also gets a
-marker on the map: the same pin used for the right-click pending marker, at
-the exact coordinate, with its name in a label beside it. Clicking a place's
-name in the panel, or its pin, flies the
-map back to its saved center, zoom, and bearing. Dragging the pin moves the
-place - dropping it updates the stored position and, if the place is part of
+Saved places appear in the panel at the top-left. Each row has, left to right:
+a `⠿` drag handle, a route checkbox, the place's position in the route when
+checked, the name, and a `×` delete button.
+
+Each place also gets a marker on the map: the same pin used for the
+right-click pending marker, at the exact coordinate, with its name in a label
+beside it. Clicking a place's name in the panel, or its pin, flies the map
+back to its saved center, zoom, and bearing. Dragging the pin moves the
+place: dropping it updates the stored position and, if the place is part of
 the current route, redraws the route through the new point. The `×` button
-next to a place deletes it and removes its marker. The list is stored in
-`localStorage` under `mapper.places`.
+deletes the place and removes its marker. The list is stored in
+`localStorage` under `mapper.places`; an invalid entry is dropped on load
+without affecting the others.
 
-The panel header (`Places (N)`) is a toggle: click it to collapse or
-expand the list. The handle (`⠿`) at the left of each row drags the row to
-reorder the list; dropping past the last row moves it to the end. The new
+The panel header (`▾ Places (N)`) is a toggle: click it to collapse or
+expand the list. Drag a row by its handle to reorder the list. Dropping on a
+row inserts before it; dropping past the last row moves it to the end. The new
 order is saved immediately and survives a reload.
 
 ## Walking routes
 
-Each saved place has a checkbox in the panel list. Checking two or more draws
-a walking route through them **in list order**, the same order the rows
-appear in the panel; each checked row shows its position (1, 2, 3, …) in
-that order. Dragging a row to a new position reorders the route along with
-the list. The route redraws automatically as the selection or the list order
-changes - there is no button to press - and a short pause after the last
-change keeps a run of clicks or a drag from firing a request per step.
+Checking two or more places draws a walking route through them **in list
+order**, the same order the rows appear in the panel; each checked row shows
+its position (1, 2, 3, …) in that order. Dragging a row to a new position
+reorders the route along with the list. The route redraws automatically as
+the selection or the list changes; a 300ms pause after the last change keeps
+a run of clicks or a drag to one request.
 
 The route is drawn as a line of round blue dots, evenly spaced along the
-path.
+path. Below the panel, the distance (metres under 1 km, then kilometres to one
+decimal) and walking time (whole minutes, at least 1) show with a
+**Clear route** button.
+
+Unchecking down to fewer than two places or clicking **Clear route** clears
+the route. Deleting a checked place re-routes through whatever remains
+checked, and clears only if fewer than two are left.
 
 Routing is walking only and covers the Schenectady, New York area only; it
 needs a self-hosted routing service on the local network, so it does not work
-away from that network. Once a route is drawn, its distance and duration show
-below the panel, with a button to clear it. Unchecking down to fewer than two
-places, deleting a checked place, or clicking Clear also clears the route -
-deleting a checked place re-routes through whatever remains checked rather
-than clearing outright, as long as two or more are still checked.
+away from that network.
 
-If the routing service cannot be reached, a message says so. If the two
-points are outside the routable area, a different message says that instead.
+| Condition | Message |
+|---|---|
+| Service unreachable, or any error but 404 | Could not reach the routing service. Is mapper on the local network? |
+| Service returns 404 (points outside its area) | No walking route there; routing only covers the Schenectady area. |
 
-The route is not saved - a reload starts with nothing checked and no route
+The route is not saved: a reload starts with nothing checked and no route
 drawn.
 
-## No WebGL
+Messages at the bottom of the window disappear after 4 seconds.
 
-If the browser cannot create a WebGL context, the map area shows one line
-of text, "This window cannot draw the map: WebGL is unavailable," instead
-of a map.
+## When the map cannot draw
 
-If the map style itself fails to load, the map area instead shows "This
-window cannot draw the map: the map style failed to load." A single failed
-tile during panning or zooming does not trigger this; the map keeps working,
-and neither does a style that fails when switched from the style buttons.
+If the browser cannot create a WebGL context, the map area shows "This window
+cannot draw the map: WebGL is unavailable." instead of a map.
+
+If the map style fails to load at startup, or does not answer within 15
+seconds, the map area shows "This window cannot draw the map: the map style
+failed to load." A single failed tile during panning or zooming does not
+trigger this; the map keeps working. A style that fails to fetch when picked
+from the style buttons shows the short message described under
+[Map style](#map-style) instead.

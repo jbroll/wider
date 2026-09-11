@@ -24,33 +24,41 @@ Manages window layouts using slots. Windows are matched by WM_WINDOW_ROLE.
 wider.tcl              # GUI
 wider.tcl --arrange    # Move windows to slot positions
 wider.tcl --launch     # Start apps for empty slots
+wider.tcl --generate   # Generate slots.tcl from layout.tcl
 wider.tcl --autostart  # Generate ~/.config/autostart/*.desktop files
+wider.tcl --save       # Save the current layout
+wider.tcl --restore    # Restore the saved layout
 ```
+
+Each long option has a single-letter form except `--autostart`; `--help` lists
+them.
 
 ### Slots
 
-Stored in `~/.config/wider/slots.tcl`:
+Stored in `~/.config/wider/slots.tcl`, one `role` block per WM_WINDOW_ROLE:
 
 ```tcl
-slot terminal-left {
-    role     terminal-left
-    class    Xfce4-terminal
-    geometry 960x1080+0+0
-    command  {xfce4-terminal --role=$role --geometry=$geometry}
+role terminal {
+    class   Xfce4-terminal
+    command {xfce4-terminal --role=terminal}
+    position 960x1080+0+0
+    position 960x1080+960+0
 }
 ```
 
-Fields:
-- **role** - WM_WINDOW_ROLE for matching windows to slots
-- **class** - Fallback WM_CLASS if role not set
-- **geometry** - WxH+X+Y position and size
-- **command** - Launch command for this slot
+- **role name** - WM_WINDOW_ROLE that matches windows to this block
+- **class** - Fallback WM_CLASS when no window carries the role
+- **command** - Launch command, optional
+- **position** - One `WxH+X+Y` per window; a role may have several
 
-Command macros:
-- `$role` - Expands to the slot's role value
-- `$geometry` - Expands to WxH+X+Y geometry string
+Windows sharing a role are interchangeable across its positions, which is
+what lets two of them swap. The older `slot NAME {role … class … geometry …
+command …}` format is still read and converted on load; Save writes the
+`role` format.
 
-If command doesn't contain `--role=`, wider appends `--role=$role` automatically.
+When a role is launched, a `--geometry=` in its command is replaced with the
+position's geometry; for class `Xfce4-terminal` one is appended if absent.
+Autostart files also append `--role=NAME` when the command has no `--role=`.
 
 ### GUI
 
@@ -60,7 +68,7 @@ Buttons:
 
 - **Refresh** - Reload window list from X11
 - **Save** - Save current window positions to their slots and regenerate autostart files. Workflow: Monitor OFF → move windows → Refresh → Save → Monitor ON.
-- **Arrange** - Move windows to their slot positions. Windows within 50px of a slot snap first, then remaining windows fill remaining slots.
+- **Arrange** - Move windows to their slot positions. Each position takes the nearest unassigned window with its role (or class), one window per position.
 - **Launch** - Start apps for slots that have a command but no matching window
 - **Monitor** - Toggle position monitoring on/off
 
@@ -75,20 +83,14 @@ When monitoring is on (polls every 500ms):
 
 `wider.tcl --autostart` generates `~/.config/autostart/wider-*.desktop` files for each slot with a command. These start apps with correct roles at login.
 
-## shooter.tcl
-
-Screenshot tool with adjustable capture region.
-
-```
-./shooter
-```
-
-Requires 32-bit visual. The wrapper script passes `-visual "truecolor 32"` to wish.
-
 ## Files
 
-- `wider.tcl` - Main GUI
-- `wmctrl.tcl` - Window management library (wm:: namespace)
-- `tkx/` - TkX X11 extension (critcl)
-- `shooter.tcl` - Screenshot capture
-- `shooter` - Wrapper for 32-bit visual
+- `wider.tcl` - Entry point, CLI dispatch, single-instance check
+- `windows.tcl` - `win::` namespace: X11 window operations over TkX
+- `slots.tcl` - `slot::` namespace: role configuration, arrangement, autostart
+- `winlist.tcl` - Window list rendering and edit handlers
+- `monitor.tcl` - Position polling, snapping and swap detection
+- `ui.tcl` - Window and layout setup
+
+`windows.tcl` and `slots.tcl` each open with an API listing for their
+namespace. Those headers are the reference; keep them current with the code.

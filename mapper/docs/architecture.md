@@ -34,12 +34,28 @@ MapLibre owns the map canvas directly (`src/map.js`), which is why `map.js`
 is a plain function rather than a component. Preact renders the places
 panel (`src/places.jsx`) and the style control and toast (`src/styles.jsx`).
 
-`src/view.js`, `src/places.js` and `src/tweaks.js` take a `localStorage`-shaped
-store as an argument instead of reading the global directly. That is what lets
-them run under `node --test` without a browser. `src/store.js` wraps
-`window.localStorage` so a thrown access (a browser policy blocking site
-data, or a quota error) yields a no-op store instead of crashing the page;
-`main.jsx` and `places.jsx` pass that wrapper where a store is needed.
+The pure modules (`view.js`, `styles.js`, `tweaks.js`, `colors.js`,
+`places.js`, `route.js`) take a `localStorage`-shaped store as an argument
+instead of reading the global directly. That is what lets them run under
+`node --test` without a browser. `src/store.js` wraps `window.localStorage` so
+a thrown access (a browser policy blocking site data, or a quota error) yields
+a no-op store instead of crashing the page; `main.jsx`, `places.jsx` and
+`styles.jsx` pass that wrapper where a store is needed.
+
+## Persistence
+
+| Key | Module | Shape | Fallback on missing or invalid |
+|---|---|---|---|
+| `mapper.view` | `view.js` | `{center:[lon,lat], zoom, bearing, pitch}` | zoom 3.5 at `[-98.5795, 39.8283]`, bearing 0, pitch 0 |
+| `mapper.style` | `styles.js` | one of the five style ids | `liberty` |
+| `mapper.tweaks` | `tweaks.js` | `{textScale, buildingMinZoom}` | `{1, 13}`, whole document on any bad field |
+| `mapper.colors` | `colors.js` | `{places, streets, pois, water}` | per group; a bad color resets only its own group |
+| `mapper.places` | `places.js` | array of `{id, name, lat, lon, zoom, bearing}` | `[]`; invalid entries dropped individually |
+
+Validation bounds: longitude ±180, latitude ±90, zoom 0–24, pitch 0–85.
+Bearing is normalised into 0–360; a view's stored bearing must first lie
+within ±360. A place needs a non-empty string `id` and a string `name`. Place
+ids are `'p'` + base-36 time + up to 6 random base-36 characters.
 
 `window.mapper.map` exposes the MapLibre map instance for the Playwright
 specs and for poking at from a browser console.
@@ -99,12 +115,14 @@ empty window. A failed startup fetch shows the style-load message directly; a
 body MapLibre rejects still reaches `map.on('error')`, because the map is
 constructed through the validating path.
 
-`styles.jsx` holds the style as fetched, untransformed, so moving a stepper or
-a color picker re-transforms that held object rather than refetching. Two
-transforms compose over it, `applyColors` over `applyTweaks`, in both places a
-style is applied: `main.jsx` at startup and `styles.jsx` on a switch or a
-control move. Both return a new style for the same reason: the held object is
-transformed repeatedly, and a mutating transform would compound scale on scale.
+`styles.jsx` holds the style as fetched, untransformed, in a module-private
+`fetched`, so moving a stepper or a color picker re-transforms that held object
+rather than refetching. Three transforms compose over it,
+`applyRoute(applyColors(applyTweaks(style, tweaks), colors), route)`, in both
+places a style is applied: `main.jsx` at startup and `styles.jsx`'s `transform`
+closure on a switch or a control move. Each returns a new style because the
+held object is transformed repeatedly, and a mutating transform would compound
+scale on scale.
 Each reads its own values at the moment it applies rather than when the click
 happened, so a control moved during an in-flight switch is carried by that
 switch when it lands.
@@ -212,6 +230,17 @@ and esbuild's bundling of them.
 The route is transient by design: `route.js` and `route.jsx` never touch
 `localStorage`, so a reload always starts with nothing selected and no route
 drawn.
+
+## Limits
+
+- The ORS base URL and profile are constants in `src/route.js`, so routing
+  works only on one local network and only for walking.
+- Only one instance runs at a time: the fixed port and Chromium's profile
+  singleton both assume it (see `install.md`).
+- Text, Buildings and the four label colors are one setting shared by all
+  five styles.
+- The vector source ends at zoom 14, so anything closer is magnified z14 data.
+  The tiles carry buildings from z13, POIs from z11, and road labels from z6.
 
 ## Why openfreemap
 
