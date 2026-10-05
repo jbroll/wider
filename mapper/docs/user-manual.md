@@ -84,7 +84,7 @@ that group on the style's own colors without disturbing the other three.
 Text, Buildings and the four colors are one setting shared by all five styles,
 not remembered per style.
 
-At the bottom, **Pin labels** sets how saved-place markers and their names
+Below the colors, **Pin labels** sets how saved-place markers and their names
 look:
 
 - **Icon** scales the marker icons, from 50% up, and **Label** scales the name
@@ -101,6 +101,9 @@ look:
 The pickers update the labels as the dialog moves. The pin label settings are
 saved to `localStorage` under `mapper.pins`; a missing or unrecognised value
 falls back on its own field without disturbing the others.
+
+At the very bottom, **Saved data** holds **Export** and **Import…**; see
+[Export and import](#export-and-import).
 
 ## Saved places
 
@@ -184,6 +187,54 @@ The route is not saved: a reload starts with nothing checked and no route
 drawn.
 
 Messages at the bottom of the window disappear after 4 seconds.
+
+## Export and import
+
+Everything mapper saves lives in the browser's `localStorage` for the address
+it was opened from, so the desktop launcher (`http://127.0.0.1:8737`) and a
+copy served from a website each keep their own places and settings. Export
+and import move them between the two, and an exported file doubles as a
+backup. Both buttons sit under **Saved data** at the bottom of the top-right
+controls.
+
+**Export** downloads `mapper-YYYY-MM-DD.json`, named for the local date. It
+holds every saved key that is currently set: the view, map style, Text and
+Buildings, label colors, pin labels, places and route preference. A stored
+value that would load as its default is left out.
+
+**Import…** opens a file picker. mapper then:
+
+1. Rejects the whole file, with a message at the bottom of the window, if it
+   is not valid JSON, not a mapper export, or from an export version this
+   mapper does not read.
+2. Checks each saved key in the file the same way mapper checks it on load. A
+   key is skipped if mapper would discard its whole value on load and use the
+   default instead. Inside a key that passes, a bad label color or pin label
+   field falls back on its own and a bad place is dropped, as on load. Keys
+   mapper does not know are ignored.
+3. Asks for confirmation, naming the keys it will replace and any it skipped.
+4. Replaces each of those keys and reloads the page. Keys the file does not
+   carry are left as they were.
+
+After the reload, a message names what was imported and what was skipped.
+Cancelling the confirmation changes nothing.
+
+An export looks like this:
+
+```json
+{
+  "app": "mapper",
+  "version": 1,
+  "exported": "2026-10-05T14:03:11.402Z",
+  "data": {
+    "mapper.style": "dark",
+    "mapper.places": [
+      { "id": "pmg1x0a3f9k2", "name": "Home", "lat": 42.81, "lon": -73.94,
+        "zoom": 15, "bearing": 0, "icon": "pin", "hidden": false }
+    ]
+  }
+}
+```
 
 ## When the map cannot draw
 

@@ -35,6 +35,11 @@ export function validatePlace(value) {
   }
 }
 
+// Null for anything but an array; inside one, invalid entries are dropped.
+export function validatePlaces(value) {
+  return Array.isArray(value) ? value.map(validatePlace).filter(Boolean) : null
+}
+
 export function parsePlaces(raw) {
   if (typeof raw !== 'string') return []
   let value
@@ -43,8 +48,7 @@ export function parsePlaces(raw) {
   } catch {
     return []
   }
-  if (!Array.isArray(value)) return []
-  return value.map(validatePlace).filter(Boolean)
+  return validatePlaces(value) || []
 }
 
 export function loadPlaces(store) {

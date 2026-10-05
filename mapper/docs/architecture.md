@@ -35,7 +35,7 @@ is a plain function rather than a component. Preact renders the places
 panel (`src/places.jsx`) and the style control and toast (`src/styles.jsx`).
 
 The pure modules (`view.js`, `styles.js`, `tweaks.js`, `colors.js`,
-`pins.js`, `places.js`, `route.js`) take a `localStorage`-shaped store as an argument
+`pins.js`, `places.js`, `route.js`, `backup.js`) take a `localStorage`-shaped store as an argument
 instead of reading the global directly. That is what lets them run under
 `node --test` without a browser. `src/store.js` wraps `window.localStorage` so
 a thrown access (a browser policy blocking site data, or a quota error) yields
@@ -61,6 +61,12 @@ floor of 1, except the pin icon scale, whose floor is 0.5; `validateScale` snaps
 Bearing is normalised into 0–360; a view's stored bearing must first lie
 within ±360. A place needs a non-empty string `id` and a string `name`. Place
 ids are `'p'` + base-36 time + up to 6 random base-36 characters.
+
+Every key in the table is also in `KEYS` in `src/backup.js`, which drives
+[export and import](#export-and-import). `test/backup.test.js` fails if the two
+differ in keys or order, or if a module exports a `*_KEY` constant naming a
+`mapper.` key that `KEYS` lacks, so a new persisted key needs a table row and
+a `KEYS` entry.
 
 `window.mapper.map` exposes the MapLibre map instance for the Playwright
 specs and for poking at from a browser console.
@@ -209,6 +215,53 @@ survives `#map` being blanked by the style-load failure message. `#toast` is
 always in the document and carries `hidden` when there is no message, so its
 `aria-live` region exists before the text lands in it. A test asserting the
 toast is absent wants `toBeHidden()`, not `toHaveCount(0)`.
+
+## Export and import
+
+`localStorage` is keyed by origin, so mapper served from a website and the
+desktop launcher on `127.0.0.1:8737` start with separate data. Export and
+import move it between them as a file.
+
+The format:
+
+```
+{ "app": "mapper", "version": 1, "exported": "<ISO 8601 time>",
+  "data": { "<key>": <value>, ... } }
+```
+
+`data` holds each key from the Persistence table that is set, as its parsed
+value: an object or array for the JSON keys, the bare string for
+`mapper.style` and `mapper.routePref`, which are stored unquoted. A reader
+rejects any other `app` or `version`. A change to the shape of `data` or of a
+stored value that an older mapper would misread needs a new version number.
+
+`src/backup.js` is pure and store-argument-taking like the other modules.
+Each `KEYS` entry pairs a key with a `json` flag and a `validate` function
+built from the owning module's own validator (`validateView`,
+`validatePlaces`, and so on), so import accepts exactly what load accepts.
+`validateColors` and `validatePins` never fail, they fall back per field, so
+their entries add a check that the value is an object at all; a non-object
+would otherwise import as all defaults. Validation returns the cleaned value,
+which is what gets written, so an imported place with no `icon` is stored with
+`icon: "pin"` exactly as a load would read it. `buildExport` runs stored
+values through the same functions, which keeps a value that would load as its
+fallback out of the file.
+
+`parseImport` returns either `{ error }`, rejecting the file, or `{ writes,
+skipped }`; `applyImport(store, writes)` does the writing. Splitting them lets
+`backup.jsx` show the confirmation between the two. `backup.jsx` holds the
+DOM side: the Blob download, the hidden `<input type="file">`, `confirm`, and
+the reload. It renders as the last section of the style control, beside the
+other settings, and gets `toast` as a prop from `styles.jsx` rather than
+importing it, which would add a third import cycle.
+
+Import reloads the page instead of updating signals, because each module
+reads its key once at startup (`places.jsx` and `route.jsx` at module load,
+`main.jsx` and `styles.jsx` in `start` and `addStyleControl`) and re-seeding all of them would
+mean a reset path per module. The result message has to outlive the reload,
+so `backup.jsx` leaves it in `sessionStorage` under `mapper.importNotice` and
+`addStyleControl` shows it as a toast on the next start, then removes it.
+`sessionStorage` is per tab, so the message never reaches another window.
 
 ## Routing
 

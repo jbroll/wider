@@ -2,7 +2,7 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 
 import {
-  PLACES_KEY, validatePlace, parsePlaces, loadPlaces, savePlaces,
+  PLACES_KEY, validatePlace, validatePlaces, parsePlaces, loadPlaces, savePlaces,
   newId, addPlace, removePlace, renamePlace, movePlace, reorderPlace,
   ICONS, DEFAULT_ICON, iconFor, setPlaceIcon, setPlaceHidden,
 } from '../src/places.js'
@@ -132,6 +132,12 @@ test('malformed storage gives an empty list', () => {
 test('an invalid entry is dropped and the valid ones survive', () => {
   const raw = JSON.stringify([HOME, { id: 'bad', name: 'Bad', lat: 'x', lon: 0, zoom: 5, bearing: 0 }, WORK])
   assert.deepEqual(parsePlaces(raw).map((p) => p.id), ['a1', 'b2'])
+})
+
+test('validatePlaces rejects anything but an array and cleans the entries of one', () => {
+  assert.equal(validatePlaces({ id: 'a1' }), null)
+  assert.equal(validatePlaces(null), null)
+  assert.deepEqual(validatePlaces([HOME, { id: '' }]), [HOME])
 })
 
 test('bearing is normalized into a single turn', () => {

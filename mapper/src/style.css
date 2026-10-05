@@ -286,12 +286,20 @@ html, body {
   cursor: pointer;
 }
 
-#styles .pins-heading {
+#styles .pins-heading,
+#styles .backup-heading {
   padding: 2px 8px;
   color: #555;
 }
 
-#styles .pin-none {
+#styles .backup-row {
+  display: flex;
+  gap: 4px;
+  padding: 2px 8px 4px;
+}
+
+#styles .pin-none,
+#styles .backup-button {
   width: auto;
   height: 1.4rem;
   padding: 0 6px;
@@ -303,7 +311,8 @@ html, body {
   cursor: pointer;
 }
 
-#styles .pin-none:hover {
+#styles .pin-none:hover,
+#styles .backup-button:hover {
   background: rgba(0, 0, 0, 0.07);
 }
 

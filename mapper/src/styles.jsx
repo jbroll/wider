@@ -7,6 +7,7 @@ import { tweaks, Steppers } from './tweaks.jsx'
 import { loadColors, saveColors, applyColors } from './colors.js'
 import { colors, styleColors, seedColors, Pickers } from './colors.jsx'
 import { initPins, PinControls } from './pins.jsx'
+import { Backup, takeNotice } from './backup.jsx'
 import { applyRoute } from './route.js'
 import { route } from './route.jsx'
 
@@ -122,6 +123,8 @@ export function addStyleControl(map, store, style) {
   const host = document.createElement('div')
   document.body.appendChild(host)
   render(<Toast />, host)
+  const notice = takeNotice()
+  if (notice) toast(notice)
 
   const change = (next) => {
     const clean = saveTweaks(store, next)
@@ -168,6 +171,8 @@ export function addStyleControl(map, store, style) {
           <Pickers onPreview={previewColors} onCommit={changeColors} />
           <div class="tweak-divider" />
           <PinControls />
+          <div class="tweak-divider" />
+          <Backup store={store} toast={toast} />
         </>,
         el,
       )
