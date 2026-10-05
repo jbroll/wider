@@ -1,11 +1,11 @@
 import { signal, effect } from '@preact/signals'
 
-import { places, selected } from './places.jsx'
+import { places, clearRouteChecks } from './places.jsx'
 import { toast, reapplyStyle } from './styles.jsx'
 import { store } from './store.js'
 import {
   ROUTE_PREFS, directionsUrl, buildBody, parseRoute, formatDistance, formatDuration,
-  loadRoutePref, saveRoutePref, loadRouteSelected, saveRouteSelected, pruneSelected,
+  loadRoutePref, saveRoutePref,
 } from './route.js'
 
 const SAVE_DELAY = 300
@@ -20,9 +20,8 @@ let map = null
 let timer = 0
 let token = 0
 
-async function run(ids, pref) {
+async function run(points, pref) {
   const t = ++token
-  const points = ids.map((id) => places.value.find((p) => p.id === id)).filter(Boolean)
   if (points.length < 2) {
     if (route.value !== null) {
       route.value = null
@@ -58,32 +57,16 @@ async function run(ids, pref) {
   reapplyStyle(map)
 }
 
-// Wired from main.jsx once the map exists. The effects prune a selection of
-// a place that got deleted, save the selection, and debounce the fetch the
-// same way main.jsx debounces the saved view - so ticking several places in
-// a row sends one request, not one per click.
+// Wired from main.jsx once the map exists. Debounces the fetch the same way
+// main.jsx debounces the saved view, so ticking several places in a row sends
+// one request, not one per click.
 export function attachRoute(m) {
   map = m
-  selected.value = pruneSelected(loadRouteSelected(store), places.value)
-
   effect(() => {
-    const next = pruneSelected(selected.value, places.value)
-    if (next.length !== selected.value.length) selected.value = next
-  })
-
-  // Skips the first run so a load alone never writes the key.
-  let loading = true
-  effect(() => {
-    const ids = selected.value
-    if (loading) loading = false
-    else saveRouteSelected(store, ids)
-  })
-
-  effect(() => {
-    const ids = places.value.filter((p) => selected.value.includes(p.id)).map((p) => p.id)
+    const points = places.value.filter((p) => p.route)
     const pref = routePref.value
     clearTimeout(timer)
-    timer = setTimeout(() => run(ids, pref), SAVE_DELAY)
+    timer = setTimeout(() => run(points, pref), SAVE_DELAY)
   })
 }
 
@@ -110,7 +93,7 @@ export function RouteStatus() {
           </button>
         ))}
       </span>
-      <button id="route-clear" onClick={() => { selected.value = [] }}>Clear route</button>
+      <button id="route-clear" onClick={clearRouteChecks}>Clear route</button>
     </div>
   )
 }

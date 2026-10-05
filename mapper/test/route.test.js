@@ -2,9 +2,9 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 
 import {
-  ORS_BASE_URL, PROFILE, ROUTE_SOURCE_ID, ROUTE_LAYER_ID, ROUTE_PREF_KEY, ROUTE_PREFS, ROUTE_SELECTED_KEY,
+  ORS_BASE_URL, PROFILE, ROUTE_SOURCE_ID, ROUTE_LAYER_ID, ROUTE_PREF_KEY, ROUTE_PREFS,
   directionsUrl, buildBody, parseRoute, applyRoute, formatDistance, formatDuration,
-  loadRoutePref, saveRoutePref, validateRouteSelected, loadRouteSelected, saveRouteSelected, pruneSelected,
+  loadRoutePref, saveRoutePref,
 } from '../src/route.js'
 
 function memoryStore(initial = {}) {
@@ -118,53 +118,6 @@ test('saveRoutePref stores a valid preference and ignores an invalid one', () =>
   assert.equal(s.data[ROUTE_PREF_KEY], 'recommended')
   assert.equal(saveRoutePref(s, 'scenic'), null)
   assert.equal(s.data[ROUTE_PREF_KEY], 'recommended')
-})
-
-test('the route selection is stored under mapper.routeSelected', () => {
-  assert.equal(ROUTE_SELECTED_KEY, 'mapper.routeSelected')
-})
-
-test('validateRouteSelected keeps an array of id strings as it is', () => {
-  assert.deepEqual(validateRouteSelected(['a', 'b']), ['a', 'b'])
-  assert.deepEqual(validateRouteSelected([]), [])
-})
-
-test('validateRouteSelected drops invalid entries one by one', () => {
-  assert.deepEqual(validateRouteSelected(['a', '', 3, null, { id: 'b' }, 'c']), ['a', 'c'])
-})
-
-test('validateRouteSelected rejects anything but an array', () => {
-  for (const v of [null, undefined, 'a', 1, { a: 1 }]) assert.equal(validateRouteSelected(v), null)
-})
-
-test('loadRouteSelected returns the saved ids in saved order', () => {
-  assert.deepEqual(loadRouteSelected(memoryStore({ [ROUTE_SELECTED_KEY]: '["b","a"]' })), ['b', 'a'])
-})
-
-test('loadRouteSelected falls back to an empty selection', () => {
-  assert.deepEqual(loadRouteSelected(memoryStore()), [])
-  assert.deepEqual(loadRouteSelected(memoryStore({ [ROUTE_SELECTED_KEY]: '{not json' })), [])
-  assert.deepEqual(loadRouteSelected(memoryStore({ [ROUTE_SELECTED_KEY]: '{"a":1}' })), [])
-  assert.deepEqual(loadRouteSelected(memoryStore({ [ROUTE_SELECTED_KEY]: '"a"' })), [])
-})
-
-test('loadRouteSelected drops an invalid entry and keeps the rest', () => {
-  assert.deepEqual(loadRouteSelected(memoryStore({ [ROUTE_SELECTED_KEY]: '["a",7,"b"]' })), ['a', 'b'])
-})
-
-test('saveRouteSelected stores the cleaned ids as a JSON array', () => {
-  const s = memoryStore()
-  assert.deepEqual(saveRouteSelected(s, ['a', 5, 'b']), ['a', 'b'])
-  assert.equal(s.data[ROUTE_SELECTED_KEY], '["a","b"]')
-  assert.deepEqual(saveRouteSelected(s, []), [])
-  assert.equal(s.data[ROUTE_SELECTED_KEY], '[]')
-  assert.deepEqual(loadRouteSelected(s), [])
-})
-
-test('pruneSelected drops ids with no place and keeps the rest in their order', () => {
-  const places = [{ id: 'a' }, { id: 'b' }, { id: 'c' }]
-  assert.deepEqual(pruneSelected(['c', 'x', 'a'], places), ['c', 'a'])
-  assert.deepEqual(pruneSelected(['x'], []), [])
 })
 
 test('parseRoute pulls geometry, distance and duration from the ORS response', () => {

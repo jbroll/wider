@@ -136,8 +136,8 @@ checked, its map icon, the name, an eye toggle, and a `×` delete button.
 The eye hides the place's marker and label from the map; it turns red and
 struck through while the place is hidden, and clicking it again brings the
 marker back. A hidden place keeps its row, clicking its name still flies the
-map to it, and if it is checked it is still a route waypoint. The choice is
-saved with the place.
+map to it, and if it is checked it stays checked and is still a route
+waypoint. The choice is saved with the place.
 
 Each place also gets a marker on the map at the exact coordinate, with its
 name in a label beside it. A new place gets the same blue pin used for the
@@ -200,11 +200,9 @@ home network; the copy at `apps.rkroll.com` reaches it from anywhere.
 | Service unreachable, or any error but 404 | Could not reach the routing service. |
 | Service returns 404 (points outside its area) | No walking route there; routing only covers the Schenectady area. |
 
-The checkboxes are remembered: they are saved to `localStorage` under
-`mapper.routeSelected` on every change, and a reload checks the same places
-and fetches the route again. The route itself is not saved. A saved id whose
-place no longer exists is dropped on load, and an unreadable value loads as
-nothing checked.
+Whether a place is checked is saved with the place in `mapper.places`, so a
+reload checks the same places and fetches the route again. The route itself
+is not saved.
 
 Messages at the bottom of the window disappear after 4 seconds.
 
@@ -219,8 +217,9 @@ controls.
 
 **Export** downloads `mapper-YYYY-MM-DD.json`, named for the local date. It
 holds every saved key that is currently set: the view, map style, Text and
-Buildings, label colors, pin labels, places, route preference and route
-selection. A stored value that would load as its default is left out.
+Buildings, label colors, pin labels, places (with which ones are checked for
+the route) and route preference. A stored value that would load as its
+default is left out.
 
 **Import…** opens a file picker. mapper then:
 
@@ -250,7 +249,7 @@ An export looks like this:
     "mapper.style": "dark",
     "mapper.places": [
       { "id": "pmg1x0a3f9k2", "name": "Home", "lat": 42.81, "lon": -73.94,
-        "zoom": 15, "bearing": 0, "icon": "pin", "hidden": false }
+        "zoom": 15, "bearing": 0, "icon": "pin", "hidden": false, "route": false }
     ]
   }
 }

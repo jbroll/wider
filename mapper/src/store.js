@@ -16,4 +16,11 @@ export const store = {
       // ignored: no persistence this session
     }
   },
+  removeItem(key) {
+    try {
+      window.localStorage.removeItem(key)
+    } catch {
+      // ignored, as in setItem
+    }
+  },
 }

@@ -5,6 +5,7 @@ import {
   PLACES_KEY, validatePlace, validatePlaces, parsePlaces, loadPlaces, savePlaces,
   newId, addPlace, removePlace, renamePlace, movePlace, reorderPlace,
   ICONS, DEFAULT_ICON, iconFor, setPlaceIcon, setPlaceHidden,
+  togglePlaceRoute, clearRoute, markRoute, migrateRouteSelected,
 } from '../src/places.js'
 
 function fakeStore(seed = {}) {
@@ -12,12 +13,13 @@ function fakeStore(seed = {}) {
   return {
     getItem: (k) => (map.has(k) ? map.get(k) : null),
     setItem: (k, v) => map.set(k, String(v)),
+    removeItem: (k) => map.delete(k),
     raw: map,
   }
 }
 
-const HOME = { id: 'a1', name: 'Home', lat: 39.1, lon: -84.5, zoom: 15, bearing: 0, icon: 'pin', hidden: false }
-const WORK = { id: 'b2', name: 'Work', lat: 39.2, lon: -84.4, zoom: 16, bearing: 90, icon: 'star', hidden: false }
+const HOME = { id: 'a1', name: 'Home', lat: 39.1, lon: -84.5, zoom: 15, bearing: 0, icon: 'pin', hidden: false, route: false }
+const WORK = { id: 'b2', name: 'Work', lat: 39.2, lon: -84.4, zoom: 16, bearing: 90, icon: 'star', hidden: false, route: false }
 
 test('a place is shown unless hidden is exactly true', () => {
   const { hidden, ...old } = HOME
@@ -37,6 +39,77 @@ test('setPlaceHidden changes only the named place', () => {
   assert.equal(list[0], HOME)
   assert.equal(list[1].hidden, true)
   assert.equal(setPlaceHidden(list, 'b2', false)[1].hidden, false)
+})
+
+test('a place is in the route only when route is exactly true', () => {
+  const { route, ...old } = HOME
+  assert.equal(validatePlace(old).route, false)
+  assert.equal(validatePlace({ ...HOME, route: 'yes' }).route, false)
+  assert.equal(validatePlace({ ...HOME, route: 1 }).route, false)
+  assert.equal(validatePlace({ ...HOME, route: true }).route, true)
+})
+
+test('the route flag round-trips through the store', () => {
+  const store = fakeStore()
+  savePlaces(store, [{ ...HOME, route: true }, WORK])
+  assert.deepEqual(loadPlaces(store).map((p) => p.route), [true, false])
+})
+
+test('togglePlaceRoute flips only the named place and leaves hidden alone', () => {
+  const list = togglePlaceRoute([{ ...HOME, hidden: true }, WORK], 'a1')
+  assert.equal(list[0].route, true)
+  assert.equal(list[0].hidden, true)
+  assert.equal(list[1], WORK)
+  assert.equal(togglePlaceRoute(list, 'a1')[0].route, false)
+  assert.equal(HOME.route, false)
+})
+
+test('hiding a place keeps its route flag', () => {
+  const list = setPlaceHidden([{ ...HOME, route: true }], 'a1', true)
+  assert.equal(list[0].route, true)
+})
+
+test('clearRoute unchecks every place and changes nothing else', () => {
+  const list = clearRoute([{ ...HOME, route: true }, WORK])
+  assert.deepEqual(list, [HOME, WORK])
+  assert.equal(list[1], WORK)
+})
+
+test('markRoute checks the named places and ignores unknown ids', () => {
+  const list = markRoute([HOME, WORK], ['b2', 'zz', 7])
+  assert.deepEqual(list.map((p) => p.route), [false, true])
+})
+
+test('a stored mapper.routeSelected is folded into the places and removed', () => {
+  const store = fakeStore({ 'mapper.routeSelected': '["b2","gone"]' })
+  savePlaces(store, [HOME, WORK])
+  migrateRouteSelected(store)
+  assert.deepEqual(loadPlaces(store).map((p) => p.route), [false, true])
+  assert.equal(store.raw.has('mapper.routeSelected'), false)
+})
+
+test('an unreadable mapper.routeSelected is removed and checks nothing', () => {
+  const store = fakeStore({ 'mapper.routeSelected': '{not json' })
+  savePlaces(store, [HOME])
+  const before = store.raw.get(PLACES_KEY)
+  migrateRouteSelected(store)
+  assert.equal(store.raw.get(PLACES_KEY), before)
+  assert.equal(store.raw.has('mapper.routeSelected'), false)
+})
+
+test('the migration writes no places key when there are no places', () => {
+  const store = fakeStore({ 'mapper.routeSelected': '["a1"]' })
+  migrateRouteSelected(store)
+  assert.equal(store.raw.has(PLACES_KEY), false)
+  assert.equal(store.raw.has('mapper.routeSelected'), false)
+})
+
+test('with no mapper.routeSelected the migration touches nothing', () => {
+  const store = fakeStore()
+  savePlaces(store, [{ ...HOME, route: true }])
+  const before = store.raw.get(PLACES_KEY)
+  migrateRouteSelected(store)
+  assert.equal(store.raw.get(PLACES_KEY), before)
 })
 
 test('the icons are pin, star and finish flag, with pin the default', () => {

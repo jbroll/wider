@@ -20,7 +20,7 @@ const num = (v) => typeof v === 'number' && Number.isFinite(v)
 
 export function validatePlace(value) {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return null
-  const { id, name, lat, lon, zoom, bearing, icon, hidden } = value
+  const { id, name, lat, lon, zoom, bearing, icon, hidden, route } = value
   if (typeof id !== 'string' || id === '') return null
   if (typeof name !== 'string') return null
   if (!num(lat) || lat < -90 || lat > 90) return null
@@ -32,6 +32,7 @@ export function validatePlace(value) {
     bearing: ((bearing % 360) + 360) % 360,
     icon: iconFor(icon).id,
     hidden: hidden === true,
+    route: route === true,
   }
 }
 
@@ -85,6 +86,38 @@ export function setPlaceIcon(places, id, icon) {
 
 export function setPlaceHidden(places, id, hidden) {
   return places.map((p) => (p.id === id ? { ...p, hidden: hidden === true } : p))
+}
+
+export function togglePlaceRoute(places, id) {
+  return places.map((p) => (p.id === id ? { ...p, route: !p.route } : p))
+}
+
+export function clearRoute(places) {
+  return places.map((p) => (p.route ? { ...p, route: false } : p))
+}
+
+// Not a *_KEY export, so backup.test.js does not require a KEYS entry for it.
+const OLD_ROUTE_KEY = 'mapper.routeSelected'
+
+export function markRoute(places, ids) {
+  const set = new Set(ids)
+  return places.map((p) => (set.has(p.id) ? { ...p, route: true } : p))
+}
+
+// One build kept the route as a separate list of place ids. Folds that list
+// into the places' route flags and removes it.
+export function migrateRouteSelected(store) {
+  const raw = store.getItem(OLD_ROUTE_KEY)
+  if (raw === null) return
+  let ids = null
+  try {
+    ids = JSON.parse(raw)
+  } catch {
+    // unreadable: dropped without marking anything
+  }
+  const places = loadPlaces(store)
+  if (Array.isArray(ids) && places.length) savePlaces(store, markRoute(places, ids))
+  store.removeItem(OLD_ROUTE_KEY)
 }
 
 export function movePlace(places, id, lat, lon) {

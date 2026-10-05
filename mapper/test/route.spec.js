@@ -211,6 +211,7 @@ test('deleting a place that is in the route re-routes through what remains', asy
   await expect.poll(() => lastBody && lastBody.coordinates.length).toBe(2)
   expect(lastBody.coordinates).toEqual([[-73.9396, 42.8142], [-73.92, 42.82]])
   await expect.poll(() => hasLayer(page)).toBe(true)
+  expect(await storedRoute(page)).toEqual(['a', 'c'])
 })
 
 test('the route survives a style switch, a stepper move and a color commit', async ({ page }) => {
@@ -303,16 +304,17 @@ test('a hidden place is still a waypoint', async ({ page }) => {
   expect(req.postDataJSON().coordinates).toEqual([[-73.9396, 42.8142], [-73.931, 42.809]])
 })
 
-const savedSelection = (page) => page.evaluate(() => JSON.parse(localStorage.getItem('mapper.routeSelected')))
+const storedRoute = (page) => page.evaluate(
+  () => JSON.parse(localStorage.getItem('mapper.places')).filter((p) => p.route).map((p) => p.id))
 
-test('the checked places survive a reload and the route is fetched again', async ({ page }) => {
+test('the checked places survive a reload and the route is fetched again in list order', async ({ page }) => {
   await open(page)
   await page.route(ORS, (r) =>
     r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(orsResponse()) }))
   await page.check(check('Bravo'))
   await page.check(check('Alpha'))
   await expect.poll(() => hasLayer(page)).toBe(true)
-  await expect.poll(() => savedSelection(page)).toEqual(['b', 'a'])
+  await expect.poll(() => storedRoute(page)).toEqual(['a', 'b'])
 
   const requested = page.waitForRequest(ORS)
   await page.reload()
@@ -324,49 +326,58 @@ test('the checked places survive a reload and the route is fetched again', async
   await expect.poll(() => hasLayer(page)).toBe(true)
 })
 
-test('a deleted checked place is gone from the saved selection after a reload', async ({ page }) => {
+test('Clear route unchecks the stored places too', async ({ page }) => {
   await open(page)
   await page.route(ORS, (r) =>
     r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(orsResponse()) }))
   await page.check(check('Alpha'))
   await page.check(check('Bravo'))
-  await page.check(check('Charlie'))
-  await expect.poll(() => savedSelection(page)).toEqual(['a', 'b', 'c'])
-  await page.click('#places-list li:has(.place-name:text-is("Bravo")) .place-del')
-  await expect.poll(() => savedSelection(page)).toEqual(['a', 'c'])
-
-  await page.reload()
-  await page.waitForFunction(() => window.mapper && window.mapper.map.loaded())
-  await expect(page.locator('#places-list .place-name')).toHaveText(['Alpha', 'Charlie'])
-  await expect(page.locator(check('Alpha'))).toBeChecked()
-  await expect(page.locator(check('Charlie'))).toBeChecked()
-  expect(await savedSelection(page)).toEqual(['a', 'c'])
+  await expect.poll(() => storedRoute(page)).toEqual(['a', 'b'])
+  await page.click('#route-clear')
+  await expect.poll(() => storedRoute(page)).toEqual([])
 })
 
-test('saved ids with no place are dropped on load, and one left draws no route', async ({ page }) => {
-  let requests = 0
+test('hiding a checked place keeps it checked and in the route', async ({ page }) => {
+  await open(page)
+  let lastBody = null
   await page.route(ORS, (r) => {
-    requests++
+    lastBody = r.request().postDataJSON()
     return r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(orsResponse()) })
   })
+  await page.check(check('Alpha'))
+  await page.check(check('Bravo'))
+  await expect.poll(() => hasLayer(page)).toBe(true)
+  await page.click('#places-list li:has(.place-name:text-is("Alpha")) .place-hide')
+  await expect(page.locator('.place-marker')).toHaveCount(2)
+  await expect(page.locator(check('Alpha'))).toBeChecked()
+  expect(await storedRoute(page)).toEqual(['a', 'b'])
+  expect(lastBody.coordinates).toEqual([[-73.9396, 42.8142], [-73.931, 42.809]])
+})
+
+test('a stored mapper.routeSelected becomes route flags and is removed', async ({ page }) => {
   await open(page)
-  await page.evaluate(() => localStorage.setItem('mapper.routeSelected', '["gone","a",7]'))
+  const requested = page.waitForRequest(ORS)
+  await page.route(ORS, (r) =>
+    r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(orsResponse()) }))
+  await page.evaluate(() => localStorage.setItem('mapper.routeSelected', '["c","gone","a"]'))
   await page.reload()
   await page.waitForFunction(() => window.mapper && window.mapper.map.loaded())
   await expect(page.locator(check('Alpha'))).toBeChecked()
-  await expect(page.locator('#places-list .place-check:checked')).toHaveCount(1)
-  await page.waitForTimeout(600)
-  expect(requests).toBe(0)
-  expect(await hasLayer(page)).toBe(false)
+  await expect(page.locator(check('Bravo'))).not.toBeChecked()
+  await expect(page.locator(check('Charlie'))).toBeChecked()
+  expect((await requested).postDataJSON().coordinates).toEqual([[-73.9396, 42.8142], [-73.92, 42.82]])
+  expect(await storedRoute(page)).toEqual(['a', 'c'])
+  expect(await page.evaluate(() => localStorage.getItem('mapper.routeSelected'))).toBeNull()
 })
 
-test('an unreadable saved selection loads as nothing checked', async ({ page }) => {
+test('an unreadable mapper.routeSelected is removed and checks nothing', async ({ page }) => {
   await open(page)
   await page.evaluate(() => localStorage.setItem('mapper.routeSelected', '{not json'))
   await page.reload()
   await page.waitForFunction(() => window.mapper && window.mapper.map.loaded())
   await expect(page.locator('#places-list .place')).toHaveCount(3)
   await expect(page.locator('#places-list .place-check:checked')).toHaveCount(0)
+  expect(await page.evaluate(() => localStorage.getItem('mapper.routeSelected'))).toBeNull()
 })
 
 test('the fetched route itself is never stored', async ({ page }) => {
@@ -378,7 +389,7 @@ test('the fetched route itself is never stored', async ({ page }) => {
   await expect.poll(() => hasLayer(page)).toBe(true)
   const stored = await page.evaluate(() => ({ ...localStorage }))
   for (const key of Object.keys(stored)) {
-    expect(['mapper.places', 'mapper.routeSelected', 'mapper.view']).toContain(key)
+    expect(['mapper.places', 'mapper.view']).toContain(key)
   }
   expect(JSON.stringify(stored)).not.toContain('LineString')
 })

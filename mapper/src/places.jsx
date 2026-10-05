@@ -3,7 +3,7 @@ import maplibregl from 'maplibre-gl'
 
 import {
   ICONS, iconFor, loadPlaces, savePlaces, addPlace, removePlace, movePlace, reorderPlace,
-  setPlaceIcon, setPlaceHidden, newId,
+  setPlaceIcon, setPlaceHidden, togglePlaceRoute, clearRoute, migrateRouteSelected, newId,
 } from './places.js'
 import { store } from './store.js'
 import { tweaks } from './tweaks.jsx'
@@ -15,6 +15,7 @@ const PIN_LIFT = 14
 
 const markerScale = () => tweaks.value.textScale * pins.value.iconScale
 
+migrateRouteSelected(store)
 export const places = signal(loadPlaces(store))
 const open = signal(true)
 const pending = signal(null)
@@ -22,16 +23,12 @@ const dragging = signal(false)
 // The id of the place whose icon menu is open.
 const iconMenu = signal(null)
 
-// Membership only - waypoint order comes from list order, not from this.
-export const selected = signal([])
-
-export function toggleSelected(id) {
-  const cur = selected.value
-  selected.value = cur.includes(id) ? cur.filter((x) => x !== id) : [...cur, id]
-}
-
 function commit(next) {
   places.value = savePlaces(store, next)
+}
+
+export function clearRouteChecks() {
+  commit(clearRoute(places.value))
 }
 
 function discard() {
@@ -182,7 +179,7 @@ export function Places({ map }) {
 
   // The order badge and the route both read this same list-order filter, so
   // dragging a row changes both together.
-  const orderedSelected = places.value.filter((p) => selected.value.includes(p.id)).map((p) => p.id)
+  const routeIds = places.value.filter((p) => p.route).map((p) => p.id)
 
   const pickIcon = (id, icon) => {
     iconMenu.value = null
@@ -242,7 +239,7 @@ export function Places({ map }) {
             onDrop={onListDrop}
           >
             {places.value.map((p) => {
-              const order = orderedSelected.indexOf(p.id)
+              const order = routeIds.indexOf(p.id)
               const menuOpen = iconMenu.value === p.id
               return [
                 <li
@@ -259,8 +256,8 @@ export function Places({ map }) {
                     type="checkbox"
                     class="place-check"
                     title="Include in route"
-                    checked={order >= 0}
-                    onChange={() => toggleSelected(p.id)}
+                    checked={p.route}
+                    onChange={() => commit(togglePlaceRoute(places.value, p.id))}
                   />
                   <span class="place-order">{order >= 0 ? order + 1 : ''}</span>
                   <button

@@ -14,8 +14,8 @@ const SAVED = {
   'mapper.tweaks': JSON.stringify({ textScale: 1.2, buildingMinZoom: 15 }),
   'mapper.pins': JSON.stringify({ scale: 1.5, iconScale: 1, text: '#000000', background: 'transparent' }),
   'mapper.places': JSON.stringify([
-    { id: 'a1', name: 'Alpha', lat: 48.8566, lon: 2.3522, zoom: 12, bearing: 0, icon: 'star', hidden: false },
-    { id: 'b2', name: 'Bravo', lat: 45.75, lon: 4.85, zoom: 12, bearing: 0, icon: 'pin', hidden: true },
+    { id: 'a1', name: 'Alpha', lat: 48.8566, lon: 2.3522, zoom: 12, bearing: 0, icon: 'star', hidden: false, route: true },
+    { id: 'b2', name: 'Bravo', lat: 45.75, lon: 4.85, zoom: 12, bearing: 0, icon: 'pin', hidden: true, route: false },
   ]),
 }
 
@@ -63,6 +63,7 @@ test('export, clear and import restores the saved data', async ({ page }) => {
   expect(doc.version).toBe(1)
   expect(doc.data['mapper.style']).toBe('dark')
   expect(doc.data['mapper.places'].map((p) => p.name)).toEqual(['Alpha', 'Bravo'])
+  expect(doc.data['mapper.places'].map((p) => p.route)).toEqual([true, false])
 
   await open(page)
   await expect(page.locator('#places-list .place')).toHaveCount(0)
@@ -77,6 +78,8 @@ test('export, clear and import restores the saved data', async ({ page }) => {
   expect(question).toContain('The page reloads afterwards.')
   expect(await storage(page)).toEqual(before)
   await expect(page.locator('#places-list .place-name')).toHaveText(['Alpha', 'Bravo'])
+  await expect(page.locator('#places-list .place-check').nth(0)).toBeChecked()
+  await expect(page.locator('#places-list .place-check').nth(1)).not.toBeChecked()
   await expect(page.locator('#styles .style-button.current')).toHaveText('Dark')
 })
 
