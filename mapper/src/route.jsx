@@ -5,7 +5,7 @@ import { toast, reapplyStyle } from './styles.jsx'
 import { store } from './store.js'
 import {
   ROUTE_PREFS, directionsUrl, buildBody, parseRoute, formatDistance, formatDuration,
-  loadRoutePref, saveRoutePref,
+  loadRoutePref, saveRoutePref, loadRouteSelected, saveRouteSelected, pruneSelected,
 } from './route.js'
 
 const SAVE_DELAY = 300
@@ -58,17 +58,25 @@ async function run(ids, pref) {
   reapplyStyle(map)
 }
 
-// Wired from main.jsx once the map exists. Two effects: one prunes a
-// selection of a place that got deleted, the other debounces the fetch the
+// Wired from main.jsx once the map exists. The effects prune a selection of
+// a place that got deleted, save the selection, and debounce the fetch the
 // same way main.jsx debounces the saved view - so ticking several places in
 // a row sends one request, not one per click.
 export function attachRoute(m) {
   map = m
+  selected.value = pruneSelected(loadRouteSelected(store), places.value)
 
   effect(() => {
-    const ids = new Set(places.value.map((p) => p.id))
-    const next = selected.value.filter((id) => ids.has(id))
+    const next = pruneSelected(selected.value, places.value)
     if (next.length !== selected.value.length) selected.value = next
+  })
+
+  // Skips the first run so a load alone never writes the key.
+  let loading = true
+  effect(() => {
+    const ids = selected.value
+    if (loading) loading = false
+    else saveRouteSelected(store, ids)
   })
 
   effect(() => {

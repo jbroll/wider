@@ -53,6 +53,7 @@ a no-op store instead of crashing the page; `main.jsx`, `places.jsx`,
 | `mapper.pins` | `pins.js` | `{scale, iconScale, text, background}`; `scale` is the label's; `background` may be `transparent` | per field: scales 1, colors null |
 | `mapper.places` | `places.js` | array of `{id, name, lat, lon, zoom, bearing, icon, hidden}` | `[]`; invalid entries dropped individually; a missing or unknown `icon` is `pin`; `hidden` is false unless exactly `true` |
 | `mapper.routePref` | `route.js` | ORS `preference`: `shortest` or `recommended` | `shortest` |
+| `mapper.routeSelected` | `route.js` | array of checked place ids, in check order | `[]`; entries that are not a non-empty string dropped individually; ids with no place dropped at startup |
 
 Validation bounds: longitude ±180, latitude ±90, zoom 0–24, pitch 0–85.
 A text or pin scale is a whole number of tenths with no upper bound and a
@@ -257,7 +258,8 @@ importing it, which would add a third import cycle.
 
 Import reloads the page instead of updating signals, because each module
 reads its key once at startup (`places.jsx` and `route.jsx` at module load,
-`main.jsx` and `styles.jsx` in `start` and `addStyleControl`) and re-seeding all of them would
+`route.jsx` again in `attachRoute`, `main.jsx` and `styles.jsx` in `start` and
+`addStyleControl`) and re-seeding all of them would
 mean a reset path per module. The result message has to outlive the reload,
 so `backup.jsx` leaves it in `sessionStorage` under `mapper.importNotice` and
 `addStyleControl` shows it as a toast on the next start, then removes it.
@@ -310,13 +312,20 @@ busier roads, so a walk along a main street such as Albany Street in
 Schenectady comes back as a detour through side streets 60% longer. Quiet in
 the route row keeps that weighting available.
 
-`route.jsx` holds the selection (`selected`, membership only - which places
-are in the route) and the fetched `route` signal, and drives both from one
-place: `attachRoute(map)` sets up two `effect`s. One prunes `selected` of an
-id whose place got deleted, reusing the identity-preserving idiom
-`places.jsx` already uses for its marker set - a no-op write when nothing
-changed - so pruning cannot loop against the second effect. The second
-filters `places.value` down to the selected ids, in list order, reads
+`places.jsx` holds the selection (`selected`, membership only - which places
+are in the route) and `route.jsx` holds the fetched `route` signal and drives
+both from one place: `attachRoute(map)` seeds `selected` from
+`mapper.routeSelected` and sets up three `effect`s. The seed runs through
+`pruneSelected`, which drops ids with no place; `places` is already loaded at
+module load, so a stale id, such as one from an import whose selection and
+places disagree, is gone before anything renders.
+That is why an import writes `mapper.routeSelected` without checking it
+against the imported places. The first effect prunes `selected` the same way
+when a place is deleted, writing only when something changed, so pruning
+cannot loop against the others. The second writes `selected` to
+`mapper.routeSelected` on every change, the prune included, but skips its
+first run so a startup with nothing to change leaves the store untouched. The
+third filters `places.value` down to the selected ids, in list order, reads
 `routePref` so a Direct/Quiet click also refetches, and debounces
 the fetch 300ms after the last change, the same constant and shape as
 `main.jsx`'s `moveend` save, so ticking several checkboxes - or dragging a
@@ -344,19 +353,18 @@ color commit - it is re-derived from the held style on every one of those,
 not drawn once and left for the next `setStyle` to erase.
 
 `places.jsx` renders the checkbox and order badge per row, reading `selected`
-and calling `toggleSelected` from `route.jsx`; `route.jsx` reads the `places`
-signal `places.jsx` exports and calls `toast`/`reapplyStyle` from
+and calling its own `toggleSelected`; `route.jsx` reads the `places` and
+`selected` signals `places.jsx` exports and calls `toast`/`reapplyStyle` from
 `styles.jsx`, and `styles.jsx` reads the `route` signal from `route.jsx` for
-`transform`. That makes `route.jsx` the hub of two import cycles
-(`places.jsx` <-> `route.jsx`, `styles.jsx` <-> `route.jsx`). Nothing at
-module top level uses another module's export - every use is inside a
+`transform`. That makes an import cycle, `styles.jsx` <-> `route.jsx`. Nothing
+at module top level uses another module's export - every use is inside a
 function, render, or effect callback, run only after the whole graph has
-loaded - so the cycles resolve under normal ES module live-binding semantics
-and esbuild's bundling of them.
+loaded - so the cycle resolves under normal ES module live-binding semantics
+and esbuild's bundling of it.
 
-The route is transient by design: `route.js` and `route.jsx` never touch
-`localStorage`, so a reload always starts with nothing selected and no route
-drawn.
+The selection is saved; the route geometry is not, and is recomputed from the
+saved selection on load: the third effect's first run fetches it when two or
+more places remain after the prune.
 
 ## Limits
 

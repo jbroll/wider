@@ -14,7 +14,7 @@ import { saveTweaks } from '../src/tweaks.js'
 import { saveColors } from '../src/colors.js'
 import { savePins } from '../src/pins.js'
 import { savePlaces } from '../src/places.js'
-import { saveRoutePref } from '../src/route.js'
+import { saveRoutePref, saveRouteSelected, loadRouteSelected, pruneSelected } from '../src/route.js'
 
 const ROOT = path.join(path.dirname(fileURLToPath(import.meta.url)), '..')
 
@@ -39,6 +39,7 @@ function fullStore() {
   savePins(s, { scale: 1.2, iconScale: 0.7, text: '#000000', background: 'transparent' })
   savePlaces(s, [PARIS, LYON])
   saveRoutePref(s, 'recommended')
+  saveRouteSelected(s, ['b2', 'a1'])
   return s
 }
 
@@ -70,6 +71,7 @@ test('an export carries the app, the version, the time and every set key as a pa
   assert.deepEqual(Object.keys(out.data), KEYS.map((e) => e.key))
   assert.equal(out.data['mapper.style'], 'dark')
   assert.equal(out.data['mapper.routePref'], 'recommended')
+  assert.deepEqual(out.data['mapper.routeSelected'], ['b2', 'a1'])
   assert.deepEqual(out.data['mapper.places'], [PARIS, LYON])
   assert.deepEqual(out.data['mapper.tweaks'], { textScale: 1.3, buildingMinZoom: 15 })
 })
@@ -142,10 +144,12 @@ test('a key whose value fails validation is skipped and the rest are written', (
     'mapper.pins': [],
     'mapper.places': { id: 'a1' },
     'mapper.routePref': 'recommended',
+    'mapper.routeSelected': 'a1',
   }))
   assert.deepEqual(result.writes, [{ key: 'mapper.routePref', label: 'route preference', raw: 'recommended' }])
   assert.deepEqual(result.skipped.map((s) => s.key), [
     'mapper.view', 'mapper.style', 'mapper.tweaks', 'mapper.colors', 'mapper.pins', 'mapper.places',
+    'mapper.routeSelected',
   ])
 })
 
@@ -160,6 +164,16 @@ test('inside a valid key, fields and entries are cleaned as on load', () => {
   assert.deepEqual(result.skipped, [])
 })
 
+test('an imported selection naming no imported place is written, then pruned on load', () => {
+  const result = parseImport(fileFor({ 'mapper.places': [PARIS], 'mapper.routeSelected': ['a1', 'zz', 7] }))
+  assert.deepEqual(result.skipped, [])
+  const target = memoryStore()
+  applyImport(target, result.writes)
+  assert.equal(target.data['mapper.routeSelected'], '["a1","zz"]')
+  assert.deepEqual(pruneSelected(loadRouteSelected(target), [PARIS]), ['a1'])
+  assert.deepEqual(pruneSelected(loadRouteSelected(target), [LYON]), [])
+})
+
 test('import replaces the keys it writes and leaves absent keys alone', () => {
   const target = fullStore()
   const before = { ...target.data }
@@ -167,7 +181,7 @@ test('import replaces the keys it writes and leaves absent keys alone', () => {
   applyImport(target, result.writes)
   assert.equal(target.data['mapper.style'], 'positron')
   assert.equal(target.data['mapper.places'], '[]')
-  for (const key of ['mapper.view', 'mapper.tweaks', 'mapper.colors', 'mapper.pins', 'mapper.routePref']) {
+  for (const key of ['mapper.view', 'mapper.tweaks', 'mapper.colors', 'mapper.pins', 'mapper.routePref', 'mapper.routeSelected']) {
     assert.equal(target.data[key], before[key])
   }
 })

@@ -7,6 +7,7 @@ export const ROUTE_SOURCE_ID = 'mapper-route'
 export const ROUTE_LAYER_ID = 'mapper-route-line'
 
 export const ROUTE_PREF_KEY = 'mapper.routePref'
+export const ROUTE_SELECTED_KEY = 'mapper.routeSelected'
 
 // Ids are ORS `preference` values. ORS defaults to recommended, which for
 // foot-walking detours around tertiary and busier roads.
@@ -29,6 +30,31 @@ export function saveRoutePref(store, id) {
   const clean = validateRoutePref(id)
   if (clean) store.setItem(ROUTE_PREF_KEY, clean)
   return clean
+}
+
+// Null for anything but an array; inside one, entries that are not a
+// non-empty string are dropped.
+export function validateRouteSelected(value) {
+  return Array.isArray(value) ? value.filter((id) => typeof id === 'string' && id !== '') : null
+}
+
+export function loadRouteSelected(store) {
+  try {
+    return validateRouteSelected(JSON.parse(store.getItem(ROUTE_SELECTED_KEY))) || []
+  } catch {
+    return []
+  }
+}
+
+export function saveRouteSelected(store, ids) {
+  const clean = validateRouteSelected(ids) || []
+  store.setItem(ROUTE_SELECTED_KEY, JSON.stringify(clean))
+  return clean
+}
+
+export function pruneSelected(ids, places) {
+  const known = new Set(places.map((p) => p.id))
+  return ids.filter((id) => known.has(id))
 }
 
 // The deployed mount checks a token query parameter on every request and sets

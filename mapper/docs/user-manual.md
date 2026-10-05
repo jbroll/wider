@@ -200,8 +200,11 @@ home network; the copy at `apps.rkroll.com` reaches it from anywhere.
 | Service unreachable, or any error but 404 | Could not reach the routing service. |
 | Service returns 404 (points outside its area) | No walking route there; routing only covers the Schenectady area. |
 
-The route is not saved: a reload starts with nothing checked and no route
-drawn.
+The checkboxes are remembered: they are saved to `localStorage` under
+`mapper.routeSelected` on every change, and a reload checks the same places
+and fetches the route again. The route itself is not saved. A saved id whose
+place no longer exists is dropped on load, and an unreadable value loads as
+nothing checked.
 
 Messages at the bottom of the window disappear after 4 seconds.
 
@@ -216,8 +219,8 @@ controls.
 
 **Export** downloads `mapper-YYYY-MM-DD.json`, named for the local date. It
 holds every saved key that is currently set: the view, map style, Text and
-Buildings, label colors, pin labels, places and route preference. A stored
-value that would load as its default is left out.
+Buildings, label colors, pin labels, places, route preference and route
+selection. A stored value that would load as its default is left out.
 
 **Import…** opens a file picker. mapper then:
 

@@ -285,11 +285,9 @@ test('the route preference is remembered across a reload', async ({ page }) => {
   await page.click('#route-info .route-pref[data-pref="recommended"]')
   await expect.poll(() => page.evaluate(() => localStorage.getItem('mapper.routePref'))).toBe('recommended')
 
+  pref = null
   await page.reload()
   await page.waitForFunction(() => window.mapper && window.mapper.map.loaded())
-  pref = null
-  await page.check(check('Alpha'))
-  await page.check(check('Bravo'))
   await expect.poll(() => pref).toBe('recommended')
 })
 
@@ -305,15 +303,82 @@ test('a hidden place is still a waypoint', async ({ page }) => {
   expect(req.postDataJSON().coordinates).toEqual([[-73.9396, 42.8142], [-73.931, 42.809]])
 })
 
-test('a route is not remembered across a reload', async ({ page }) => {
+const savedSelection = (page) => page.evaluate(() => JSON.parse(localStorage.getItem('mapper.routeSelected')))
+
+test('the checked places survive a reload and the route is fetched again', async ({ page }) => {
+  await open(page)
+  await page.route(ORS, (r) =>
+    r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(orsResponse()) }))
+  await page.check(check('Bravo'))
+  await page.check(check('Alpha'))
+  await expect.poll(() => hasLayer(page)).toBe(true)
+  await expect.poll(() => savedSelection(page)).toEqual(['b', 'a'])
+
+  const requested = page.waitForRequest(ORS)
+  await page.reload()
+  await page.waitForFunction(() => window.mapper && window.mapper.map.loaded())
+  await expect(page.locator(check('Alpha'))).toBeChecked()
+  await expect(page.locator(check('Bravo'))).toBeChecked()
+  await expect(page.locator(check('Charlie'))).not.toBeChecked()
+  expect((await requested).postDataJSON().coordinates).toEqual([[-73.9396, 42.8142], [-73.931, 42.809]])
+  await expect.poll(() => hasLayer(page)).toBe(true)
+})
+
+test('a deleted checked place is gone from the saved selection after a reload', async ({ page }) => {
+  await open(page)
+  await page.route(ORS, (r) =>
+    r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(orsResponse()) }))
+  await page.check(check('Alpha'))
+  await page.check(check('Bravo'))
+  await page.check(check('Charlie'))
+  await expect.poll(() => savedSelection(page)).toEqual(['a', 'b', 'c'])
+  await page.click('#places-list li:has(.place-name:text-is("Bravo")) .place-del')
+  await expect.poll(() => savedSelection(page)).toEqual(['a', 'c'])
+
+  await page.reload()
+  await page.waitForFunction(() => window.mapper && window.mapper.map.loaded())
+  await expect(page.locator('#places-list .place-name')).toHaveText(['Alpha', 'Charlie'])
+  await expect(page.locator(check('Alpha'))).toBeChecked()
+  await expect(page.locator(check('Charlie'))).toBeChecked()
+  expect(await savedSelection(page)).toEqual(['a', 'c'])
+})
+
+test('saved ids with no place are dropped on load, and one left draws no route', async ({ page }) => {
+  let requests = 0
+  await page.route(ORS, (r) => {
+    requests++
+    return r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(orsResponse()) })
+  })
+  await open(page)
+  await page.evaluate(() => localStorage.setItem('mapper.routeSelected', '["gone","a",7]'))
+  await page.reload()
+  await page.waitForFunction(() => window.mapper && window.mapper.map.loaded())
+  await expect(page.locator(check('Alpha'))).toBeChecked()
+  await expect(page.locator('#places-list .place-check:checked')).toHaveCount(1)
+  await page.waitForTimeout(600)
+  expect(requests).toBe(0)
+  expect(await hasLayer(page)).toBe(false)
+})
+
+test('an unreadable saved selection loads as nothing checked', async ({ page }) => {
+  await open(page)
+  await page.evaluate(() => localStorage.setItem('mapper.routeSelected', '{not json'))
+  await page.reload()
+  await page.waitForFunction(() => window.mapper && window.mapper.map.loaded())
+  await expect(page.locator('#places-list .place')).toHaveCount(3)
+  await expect(page.locator('#places-list .place-check:checked')).toHaveCount(0)
+})
+
+test('the fetched route itself is never stored', async ({ page }) => {
   await open(page)
   await page.route(ORS, (r) =>
     r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(orsResponse()) }))
   await page.check(check('Alpha'))
   await page.check(check('Bravo'))
   await expect.poll(() => hasLayer(page)).toBe(true)
-  await page.reload()
-  await page.waitForFunction(() => window.mapper && window.mapper.map.loaded())
-  await expect.poll(() => hasLayer(page)).toBe(false)
-  await expect(page.locator(check('Alpha'))).not.toBeChecked()
+  const stored = await page.evaluate(() => ({ ...localStorage }))
+  for (const key of Object.keys(stored)) {
+    expect(['mapper.places', 'mapper.routeSelected', 'mapper.view']).toContain(key)
+  }
+  expect(JSON.stringify(stored)).not.toContain('LineString')
 })

@@ -4,7 +4,7 @@ import { TWEAKS_KEY, validateTweaks } from './tweaks.js'
 import { COLORS_KEY, validateColors } from './colors.js'
 import { PINS_KEY, validatePins } from './pins.js'
 import { PLACES_KEY, validatePlaces } from './places.js'
-import { ROUTE_PREF_KEY, validateRoutePref } from './route.js'
+import { ROUTE_PREF_KEY, validateRoutePref, ROUTE_SELECTED_KEY, validateRouteSelected } from './route.js'
 
 export const APP = 'mapper'
 export const VERSION = 1
@@ -25,6 +25,7 @@ export const KEYS = [
   { key: PINS_KEY, label: 'pin labels', json: true, validate: objectOf(validatePins) },
   { key: PLACES_KEY, label: 'places', json: true, validate: validatePlaces },
   { key: ROUTE_PREF_KEY, label: 'route preference', json: false, validate: validateRoutePref },
+  { key: ROUTE_SELECTED_KEY, label: 'route selection', json: true, validate: validateRouteSelected },
 ]
 
 export const NOT_JSON = 'That file is not valid JSON.'
