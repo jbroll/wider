@@ -4,6 +4,7 @@ import assert from 'node:assert/strict'
 import {
   PLACES_KEY, validatePlace, parsePlaces, loadPlaces, savePlaces,
   newId, addPlace, removePlace, renamePlace, movePlace, reorderPlace,
+  ICONS, DEFAULT_ICON, iconFor, setPlaceIcon, setPlaceHidden,
 } from '../src/places.js'
 
 function fakeStore(seed = {}) {
@@ -15,8 +16,62 @@ function fakeStore(seed = {}) {
   }
 }
 
-const HOME = { id: 'a1', name: 'Home', lat: 39.1, lon: -84.5, zoom: 15, bearing: 0 }
-const WORK = { id: 'b2', name: 'Work', lat: 39.2, lon: -84.4, zoom: 16, bearing: 90 }
+const HOME = { id: 'a1', name: 'Home', lat: 39.1, lon: -84.5, zoom: 15, bearing: 0, icon: 'pin', hidden: false }
+const WORK = { id: 'b2', name: 'Work', lat: 39.2, lon: -84.4, zoom: 16, bearing: 90, icon: 'star', hidden: false }
+
+test('a place is shown unless hidden is exactly true', () => {
+  const { hidden, ...old } = HOME
+  assert.equal(validatePlace(old).hidden, false)
+  assert.equal(validatePlace({ ...HOME, hidden: 'yes' }).hidden, false)
+  assert.equal(validatePlace({ ...HOME, hidden: true }).hidden, true)
+})
+
+test('a hidden place round-trips through the store', () => {
+  const store = fakeStore()
+  savePlaces(store, [{ ...HOME, hidden: true }])
+  assert.equal(loadPlaces(store)[0].hidden, true)
+})
+
+test('setPlaceHidden changes only the named place', () => {
+  const list = setPlaceHidden([HOME, WORK], 'b2', true)
+  assert.equal(list[0], HOME)
+  assert.equal(list[1].hidden, true)
+  assert.equal(setPlaceHidden(list, 'b2', false)[1].hidden, false)
+})
+
+test('the icons are pin, star and finish flag, with pin the default', () => {
+  assert.deepEqual(ICONS.map((i) => i.id), ['pin', 'star', 'finish'])
+  assert.equal(DEFAULT_ICON, 'pin')
+  assert.equal(iconFor('star').emoji, '⭐')
+  assert.equal(iconFor('finish').emoji, '🏁')
+  assert.equal(iconFor('nope').id, 'pin')
+})
+
+test('a place saved before icons existed loads as a pin', () => {
+  const { icon, ...old } = HOME
+  assert.equal(validatePlace(old).icon, 'pin')
+})
+
+test('an unknown icon falls back to pin without dropping the place', () => {
+  assert.equal(validatePlace({ ...HOME, icon: 'unicorn' }).icon, 'pin')
+  assert.equal(validatePlace({ ...HOME, icon: 7 }).icon, 'pin')
+})
+
+test('a place icon round-trips through the store', () => {
+  const store = fakeStore()
+  savePlaces(store, [{ ...HOME, icon: 'finish' }])
+  assert.equal(loadPlaces(store)[0].icon, 'finish')
+})
+
+test('setPlaceIcon changes only the named place and ignores an unknown icon', () => {
+  const list = setPlaceIcon([HOME, WORK], 'a1', 'finish')
+  assert.equal(list[0].icon, 'finish')
+  assert.equal(list[1], WORK)
+  assert.deepEqual(setPlaceIcon([HOME], 'a1', 'unicorn'), [HOME])
+  const before = [HOME]
+  setPlaceIcon(before, 'a1', 'star')
+  assert.equal(before[0].icon, 'pin')
+})
 
 test('a place is added to the end of the list', () => {
   const list = addPlace(addPlace([], HOME), WORK)

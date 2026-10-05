@@ -3,8 +3,8 @@
 A chromeless desktop OpenStreetMap window for X11, for people who arrange
 their desktop with wider and want a map that sits in a slot like any other
 application. It runs as a Chromium `--app` window with `WM_CLASS` `Mapper`,
-and has saved places, five map styles, label size and color controls, and
-walking routes between saved places.
+and has saved places with a choice of marker icon, five map styles, label and
+marker size and color controls, and walking routes between saved places.
 
 ```bash
 ./mapper

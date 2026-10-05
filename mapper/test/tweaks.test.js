@@ -2,8 +2,8 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 
 import {
-  TWEAKS_KEY, TEXT_SCALES, BUILDING_ZOOMS, DEFAULT_TWEAKS,
-  validateTweaks, parseTweaks, loadTweaks, saveTweaks, applyTweaks,
+  TWEAKS_KEY, BUILDING_ZOOMS, DEFAULT_TWEAKS,
+  validateTweaks, parseTweaks, loadTweaks, saveTweaks, applyTweaks, validateScale, stepScale,
 } from '../src/tweaks.js'
 
 function fakeStore(seed = {}) {
@@ -55,19 +55,53 @@ function stub() {
 const layer = (style, id) => style.layers.find((l) => l.id === id)
 
 test('the notches and defaults are the listed ones', () => {
-  assert.deepEqual(TEXT_SCALES, [1, 1.1, 1.2, 1.3, 1.4, 1.5, 1.6, 1.7, 1.8, 1.9, 2])
   assert.deepEqual(BUILDING_ZOOMS, [13, 14, 15, 16, null])
   assert.deepEqual(DEFAULT_TWEAKS, { textScale: 1, buildingMinZoom: 13 })
   assert.deepEqual(validateTweaks(DEFAULT_TWEAKS), DEFAULT_TWEAKS)
 })
 
-test('the top text scale round-trips through the store and through applyTweaks', () => {
-  const top = { textScale: 2, buildingMinZoom: 13 }
+test('a scale is any tenth from 1 up, with no ceiling', () => {
+  assert.equal(validateScale(1), 1)
+  assert.equal(validateScale(2), 2)
+  assert.equal(validateScale(2.1), 2.1)
+  assert.equal(validateScale(7.3), 7.3)
+  assert.equal(validateScale(1.25), null)
+  assert.equal(validateScale(0.9), null)
+  assert.equal(validateScale('1.2'), null)
+  assert.equal(validateScale(NaN), null)
+  assert.equal(validateScale(Infinity), null)
+})
+
+test('a scale can take a lower floor than 1', () => {
+  assert.equal(validateScale(0.5, 0.5), 0.5)
+  assert.equal(validateScale(0.8, 0.5), 0.8)
+  assert.equal(validateScale(0.4, 0.5), null)
+  assert.equal(validateScale(0.9), null)
+  assert.equal(stepScale(1, -1, 0.5), 0.9)
+  assert.equal(stepScale(0.6, -1, 0.5), 0.5)
+  assert.equal(stepScale(0.5, -1, 0.5), 0.5)
+})
+
+test('validateScale snaps floating-point drift back onto the tenth', () => {
+  assert.equal(validateScale(1.2000000000000002), 1.2)
+})
+
+test('stepScale moves a tenth at a time, stops at 1 and does not drift', () => {
+  assert.equal(stepScale(1.1, 1), 1.2)
+  assert.equal(stepScale(1.2, -1), 1.1)
+  assert.equal(stepScale(1, -1), 1)
+  let s = 1
+  for (let i = 0; i < 25; i += 1) s = stepScale(s, 1)
+  assert.equal(s, 3.5)
+})
+
+test('a text scale past 200% round-trips through the store and through applyTweaks', () => {
+  const big = { textScale: 3.5, buildingMinZoom: 13 }
   const store = fakeStore()
-  assert.deepEqual(saveTweaks(store, top), top)
-  assert.deepEqual(loadTweaks(store), top)
-  const out = applyTweaks(stub(), top)
-  assert.equal(layer(out, 'plain-label').layout['text-size'], 24)
+  assert.deepEqual(saveTweaks(store, big), big)
+  assert.deepEqual(loadTweaks(store), big)
+  const out = applyTweaks(stub(), big)
+  assert.equal(layer(out, 'plain-label').layout['text-size'], 42)
 })
 
 test('a null buildingMinZoom (Off) validates and round-trips through the store and JSON', () => {
@@ -109,7 +143,7 @@ test('an off-notch value or a missing field gives the default tweaks', () => {
 
 test('saving an off-notch value writes nothing', () => {
   const store = fakeStore()
-  assert.equal(saveTweaks(store, { textScale: 3, buildingMinZoom: 13 }), null)
+  assert.equal(saveTweaks(store, { textScale: 1.25, buildingMinZoom: 13 }), null)
   assert.equal(store.raw.size, 0)
 })
 

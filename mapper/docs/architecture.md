@@ -35,7 +35,7 @@ is a plain function rather than a component. Preact renders the places
 panel (`src/places.jsx`) and the style control and toast (`src/styles.jsx`).
 
 The pure modules (`view.js`, `styles.js`, `tweaks.js`, `colors.js`,
-`places.js`, `route.js`) take a `localStorage`-shaped store as an argument
+`pins.js`, `places.js`, `route.js`) take a `localStorage`-shaped store as an argument
 instead of reading the global directly. That is what lets them run under
 `node --test` without a browser. `src/store.js` wraps `window.localStorage` so
 a thrown access (a browser policy blocking site data, or a quota error) yields
@@ -50,10 +50,14 @@ a no-op store instead of crashing the page; `main.jsx`, `places.jsx`,
 | `mapper.style` | `styles.js` | one of the five style ids | `liberty` |
 | `mapper.tweaks` | `tweaks.js` | `{textScale, buildingMinZoom}` | `{1, 13}`, whole document on any bad field |
 | `mapper.colors` | `colors.js` | `{places, streets, pois, water}` | per group; a bad color resets only its own group |
-| `mapper.places` | `places.js` | array of `{id, name, lat, lon, zoom, bearing}` | `[]`; invalid entries dropped individually |
+| `mapper.pins` | `pins.js` | `{scale, iconScale, text, background}`; `scale` is the label's; `background` may be `transparent` | per field: scales 1, colors null |
+| `mapper.places` | `places.js` | array of `{id, name, lat, lon, zoom, bearing, icon, hidden}` | `[]`; invalid entries dropped individually; a missing or unknown `icon` is `pin`; `hidden` is false unless exactly `true` |
 | `mapper.routePref` | `route.js` | ORS `preference`: `shortest` or `recommended` | `shortest` |
 
 Validation bounds: longitude ±180, latitude ±90, zoom 0–24, pitch 0–85.
+A text or pin scale is a whole number of tenths with no upper bound and a
+floor of 1, except the pin icon scale, whose floor is 0.5; `validateScale` snaps floating-point drift back onto the tenth, and
+`stepScale` counts in integer tenths so stepping never produces it.
 Bearing is normalised into 0–360; a view's stored bearing must first lie
 within ±360. A place needs a non-empty string `id` and a string `name`. Place
 ids are `'p'` + base-36 time + up to 6 random base-36 characters.
@@ -76,6 +80,32 @@ inside an `effect`, keyed by place id so an unrelated signal update touches
 no marker; because `savePlaces` rebuilds every place object on each commit,
 the effect diffs by the place's lat/lon/name values rather than by object
 identity; an unchanged entry gets neither a `setLngLat` nor a label update.
+A hidden place is filtered out before reconciling, so hiding removes its
+marker exactly as deleting the place would, and showing it builds a new one.
+Hiding touches only the markers: the panel and the route read the full list.
+
+A place's `icon` picks its marker from the `ICONS` table in `places.js`. `pin`
+keeps MapLibre's default marker. Every other entry is an emoji in a custom
+`element`, placed by the table's MapLibre `anchor` so the glyph's point of
+contact lands on the coordinate: the star's center, the flag's pole foot.
+Noto Color Emoji, the emoji font Chromium uses here, draws the pole a quarter
+em in from the glyph's left edge, so the table's `shift` of `-0.25` em becomes
+a negative left margin on the glyph and pulls the pole onto the element's
+bottom-left corner. Another emoji font would draw the pole elsewhere. A
+Marker's element is fixed at construction, so the reconciling effect replaces
+the marker outright when a place's icon changes instead of updating it.
+Adding an icon is one table entry, plus a `.place-label` `top` rule in
+`style.css` if the label should not sit a third of the way down the glyph.
+
+Markers scale by Text times the pin Icon stepper, independently of the label's
+Text times Label. `style.css` sizes the emoji's font and the default pin's SVG
+from `--text-scale` and `--icon-scale`.
+MapLibre anchors by percentage translates, so an emoji stays on its point at
+any size, and the flag's `shift` is in em so it scales too. The default pin is
+the exception: MapLibre centres it and lifts it a fixed 14px so the tip, not
+the centre, is on the point. A second effect in `places.jsx` watches the two
+scale signals and calls `setOffset` with the lift times the scale on every pin
+marker; new pin markers are built with the current lift.
 
 A marker is draggable; dropping it calls the pure `movePlace` (`places.js`)
 and commits the result, the same path a panel edit uses. MapLibre suppresses
@@ -130,7 +160,7 @@ switch when it lands.
 
 The colors live in their own `mapper.colors` key rather than joining
 `mapper.tweaks` because they fall back differently. A malformed field in
-`mapper.tweaks` resets the whole document, which suits two coupled notches and
+`mapper.tweaks` resets the whole document, which suits its two settings and
 does not suit four independent colors; in `mapper.colors` a bad color falls
 back on its own group. Separate keys also mean a malformed color cannot reset
 the text size.
@@ -159,6 +189,20 @@ one `requestAnimationFrame` per drag; `onCommit` runs once, on `change` or on
 the clear click, and is the only path that writes `mapper.colors`. A commit
 cancels any pending preview frame so a stale one cannot re-apply after the
 commit's own `setStyle`.
+
+The pin label controls never touch the style. The labels belong to the marker
+DOM overlay, so `pins.jsx` writes `pinCss` (`pins.js`, pure) to five custom
+properties on the root element, `--pin-scale`, `--icon-scale`, `--pin-text`,
+`--pin-background` and `--pin-halo`. The `.place-label` rule reads all but
+`--icon-scale`, which sizes the marker icons. The label's font size is
+`13px * --text-scale * --pin-scale`, so Text still scales pin labels and Label
+multiplies on top. A preview is therefore cheap, and the pin pickers set the
+properties on every `input` with no frame coalescing; only `change`, a click
+on `×` or **No background**, and an Icon or Label step write `mapper.pins`. With a
+transparent background the label sits directly on the map, so `--pin-halo`
+becomes a one-pixel `text-shadow` outline in `haloFor`'s black or white,
+matching the halos the label color pickers give map labels. `mapper.pins` is
+its own key with per-field fallback for the same reason `mapper.colors` is.
 
 The toast host is appended to `document.body`, not into `#map`, so it
 survives `#map` being blanked by the style-load failure message. `#toast` is

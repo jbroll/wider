@@ -1,11 +1,12 @@
 import { signal } from '@preact/signals'
 
-import { TEXT_SCALES, BUILDING_ZOOMS, DEFAULT_TWEAKS } from './tweaks.js'
+import { BUILDING_ZOOMS, DEFAULT_TWEAKS, stepScale } from './tweaks.js'
 
 export const tweaks = signal(DEFAULT_TWEAKS)
 
-function Row({ id, label, notches, value, text, less, more, pick }) {
-  const i = notches.indexOf(value)
+// onLess and onMore are null where the range ends, which disables that
+// button. A value can't stand in for that: Buildings uses null for Off.
+function Row({ id, label, text, less, more, onLess, onMore }) {
   return (
     <div class="tweak-row">
       <span class="tweak-label">{label}</span>
@@ -13,8 +14,8 @@ function Row({ id, label, notches, value, text, less, more, pick }) {
         class="tweak-down"
         data-tweak={id}
         title={less}
-        disabled={i <= 0}
-        onClick={() => pick(notches[i - 1])}
+        disabled={!onLess}
+        onClick={onLess}
       >
         −
       </button>
@@ -23,8 +24,8 @@ function Row({ id, label, notches, value, text, less, more, pick }) {
         class="tweak-up"
         data-tweak={id}
         title={more}
-        disabled={i >= notches.length - 1}
-        onClick={() => pick(notches[i + 1])}
+        disabled={!onMore}
+        onClick={onMore}
       >
         +
       </button>
@@ -32,21 +33,44 @@ function Row({ id, label, notches, value, text, less, more, pick }) {
   )
 }
 
+export function ScaleRow({ id, label, value, min = 1, less, more, pick }) {
+  return (
+    <Row
+      id={id}
+      label={label}
+      text={Math.round(value * 100) + '%'}
+      less={less}
+      more={more}
+      onLess={value > min ? () => pick(stepScale(value, -1, min)) : null}
+      onMore={() => pick(stepScale(value, 1, min))}
+    />
+  )
+}
+
+function NotchRow({ notches, value, pick, ...rest }) {
+  const i = notches.indexOf(value)
+  return (
+    <Row
+      {...rest}
+      onLess={i > 0 ? () => pick(notches[i - 1]) : null}
+      onMore={i < notches.length - 1 ? () => pick(notches[i + 1]) : null}
+    />
+  )
+}
+
 export function Steppers({ onChange }) {
   const t = tweaks.value
   return (
     <div id="tweaks">
-      <Row
+      <ScaleRow
         id="text"
         label="Text"
-        notches={TEXT_SCALES}
         value={t.textScale}
-        text={Math.round(t.textScale * 100) + '%'}
         less="Smaller labels"
         more="Larger labels"
         pick={(v) => onChange({ ...t, textScale: v })}
       />
-      <Row
+      <NotchRow
         id="buildings"
         label="Buildings"
         notches={BUILDING_ZOOMS}

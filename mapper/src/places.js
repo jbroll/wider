@@ -1,17 +1,38 @@
 export const PLACES_KEY = 'mapper.places'
 
+// `pin` is MapLibre's own default marker; its emoji only stands in for it in
+// the panel. `anchor` and `shift` (em, so it scales with the glyph) put the
+// emoji's point of contact on the coordinate: Noto's flag pole stands a
+// quarter em in from the glyph's left edge.
+export const ICONS = [
+  { id: 'pin', name: 'Pin', emoji: '📍', anchor: null, shift: 0 },
+  { id: 'star', name: 'Star', emoji: '⭐', anchor: 'center', shift: 0 },
+  { id: 'finish', name: 'Finish flag', emoji: '🏁', anchor: 'bottom-left', shift: -0.25 },
+]
+
+export const DEFAULT_ICON = 'pin'
+
+export function iconFor(id) {
+  return ICONS.find((i) => i.id === id) || ICONS.find((i) => i.id === DEFAULT_ICON)
+}
+
 const num = (v) => typeof v === 'number' && Number.isFinite(v)
 
 export function validatePlace(value) {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return null
-  const { id, name, lat, lon, zoom, bearing } = value
+  const { id, name, lat, lon, zoom, bearing, icon, hidden } = value
   if (typeof id !== 'string' || id === '') return null
   if (typeof name !== 'string') return null
   if (!num(lat) || lat < -90 || lat > 90) return null
   if (!num(lon) || lon < -180 || lon > 180) return null
   if (!num(zoom) || zoom < 0 || zoom > 24) return null
   if (!num(bearing)) return null
-  return { id, name, lat, lon, zoom, bearing: ((bearing % 360) + 360) % 360 }
+  return {
+    id, name, lat, lon, zoom,
+    bearing: ((bearing % 360) + 360) % 360,
+    icon: iconFor(icon).id,
+    hidden: hidden === true,
+  }
 }
 
 export function parsePlaces(raw) {
@@ -51,6 +72,15 @@ export function removePlace(places, id) {
 
 export function renamePlace(places, id, name) {
   return places.map((p) => (p.id === id ? { ...p, name } : p))
+}
+
+export function setPlaceIcon(places, id, icon) {
+  if (!ICONS.some((i) => i.id === icon)) return [...places]
+  return places.map((p) => (p.id === id ? { ...p, icon } : p))
+}
+
+export function setPlaceHidden(places, id, hidden) {
+  return places.map((p) => (p.id === id ? { ...p, hidden: hidden === true } : p))
 }
 
 export function movePlace(places, id, lat, lon) {

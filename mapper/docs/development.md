@@ -17,9 +17,9 @@ mapper/
 argument and run under `node --test`, and browser modules that do not:
 
 ```
-pure      view.js  styles.js  tweaks.js  colors.js  places.js  route.js
+pure      view.js  styles.js  tweaks.js  colors.js  pins.js  places.js  route.js
 browser   main.jsx  map.js  store.js  places.jsx  styles.jsx
-          tweaks.jsx  colors.jsx  route.jsx
+          tweaks.jsx  colors.jsx  pins.jsx  route.jsx
 page      index.html  style.css
 ```
 
@@ -41,7 +41,7 @@ without writing to disk.
 ## Test
 
 ```bash
-node --test test/*.test.js   # unit tests: build, serve, view, styles, tweaks, colors, places, route
+node --test test/*.test.js   # unit tests: build, serve, view, styles, tweaks, colors, pins, places, route
 npx playwright test          # browser specs: test/map.spec.js, test/route.spec.js
 npm test                     # both, in that order
 ```

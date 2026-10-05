@@ -1,14 +1,26 @@
 export const TWEAKS_KEY = 'mapper.tweaks'
 
-export const TEXT_SCALES = [1, 1.1, 1.2, 1.3, 1.4, 1.5, 1.6, 1.7, 1.8, 1.9, 2]
 export const BUILDING_ZOOMS = [13, 14, 15, 16, null]
 
-export const DEFAULT_TWEAKS = { textScale: TEXT_SCALES[0], buildingMinZoom: BUILDING_ZOOMS[0] }
+export const DEFAULT_TWEAKS = { textScale: 1, buildingMinZoom: BUILDING_ZOOMS[0] }
+
+// A scale is a whole number of tenths from `min` up. Counting in tenths keeps
+// 1.1 + 0.1 from landing on 1.2000000000000002.
+export function validateScale(value, min = 1) {
+  if (typeof value !== 'number' || !Number.isFinite(value) || value < min - 1e-6) return null
+  const tenths = Math.round(value * 10)
+  return Math.abs(value * 10 - tenths) < 1e-6 ? tenths / 10 : null
+}
+
+export function stepScale(scale, direction, min = 1) {
+  return Math.max(Math.round(min * 10), Math.round(scale * 10) + direction) / 10
+}
 
 export function validateTweaks(value) {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return null
-  const { textScale, buildingMinZoom } = value
-  if (!TEXT_SCALES.includes(textScale)) return null
+  const textScale = validateScale(value.textScale)
+  const { buildingMinZoom } = value
+  if (textScale === null) return null
   if (!BUILDING_ZOOMS.includes(buildingMinZoom)) return null
   return { textScale, buildingMinZoom }
 }

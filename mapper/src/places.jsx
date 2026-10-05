@@ -1,13 +1,26 @@
-import { signal, effect } from '@preact/signals'
+import { signal, effect, untracked } from '@preact/signals'
 import maplibregl from 'maplibre-gl'
 
-import { loadPlaces, savePlaces, addPlace, removePlace, movePlace, reorderPlace, newId } from './places.js'
+import {
+  ICONS, iconFor, loadPlaces, savePlaces, addPlace, removePlace, movePlace, reorderPlace,
+  setPlaceIcon, setPlaceHidden, newId,
+} from './places.js'
 import { store } from './store.js'
+import { tweaks } from './tweaks.jsx'
+import { pins } from './pins.jsx'
+
+// MapLibre centres its default pin on the coordinate and lifts it this many
+// px so the tip lands there instead. CSS scales the pin; the lift must follow.
+const PIN_LIFT = 14
+
+const markerScale = () => tweaks.value.textScale * pins.value.iconScale
 
 export const places = signal(loadPlaces(store))
 const open = signal(true)
 const pending = signal(null)
 const dragging = signal(false)
+// The id of the place whose icon menu is open.
+const iconMenu = signal(null)
 
 // Membership only - waypoint order comes from list order, not from this.
 export const selected = signal([])
@@ -30,17 +43,35 @@ function goTo(map, p) {
   map.flyTo({ center: [p.lon, p.lat], zoom: p.zoom, bearing: p.bearing })
 }
 
-// No custom element: MapLibre's own default marker is the pin, so it's the
-// same icon as the pending pin and MapLibre owns the anchor math. The label
-// is appended to the marker's own element, absolutely positioned so it
-// carries no layout weight and can't shift where MapLibre anchors the pin.
+function emojiElement(icon) {
+  const el = document.createElement('div')
+  const glyph = document.createElement('span')
+  glyph.className = 'place-emoji'
+  glyph.textContent = icon.emoji
+  glyph.style.marginLeft = icon.shift + 'em'
+  el.append(glyph)
+  return el
+}
+
+const pinOffset = (scale) => [0, -PIN_LIFT * scale]
+
+// The pin is MapLibre's own default marker, the same icon as the pending pin;
+// an emoji icon is a custom element on the anchor its table entry names.
+// Either way MapLibre owns the anchor math. The label is appended to the
+// marker's own element, absolutely positioned so it carries no layout weight
+// and can't shift where MapLibre anchors the marker.
 function placeMarker(map, p) {
-  const marker = new maplibregl.Marker({ draggable: true })
+  const icon = iconFor(p.icon)
+  const options = icon.anchor
+    ? { element: emojiElement(icon), anchor: icon.anchor, draggable: true }
+    : { offset: pinOffset(untracked(markerScale)), draggable: true }
+  const marker = new maplibregl.Marker(options)
     .setLngLat([p.lon, p.lat])
     .addTo(map)
 
   const el = marker.getElement()
   el.classList.add('place-marker')
+  el.dataset.icon = icon.id
 
   const label = document.createElement('div')
   label.className = 'place-label'
@@ -77,21 +108,35 @@ export function attach(map) {
     open.value = true
   })
 
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') iconMenu.value = null
+  })
+  document.addEventListener('pointerdown', (e) => {
+    if (iconMenu.value && !e.target.closest('.icon-menu, .place-icon')) iconMenu.value = null
+  })
+
   // Keyed by place id so a re-run over an unchanged list touches no marker.
   // savePlaces rebuilds every place object on each commit, so an unchanged
-  // entry is detected by comparing lat/lon/name values, not identity.
+  // entry is detected by comparing lat/lon/name values, not identity. A
+  // marker's element is fixed at construction, so a new icon means a new marker.
+  // A hidden place has no marker at all, the same as a deleted one.
   const markers = new Map()
   effect(() => {
-    const ids = new Set(places.value.map((p) => p.id))
+    const shown = places.value.filter((p) => !p.hidden)
+    const ids = new Set(shown.map((p) => p.id))
     for (const [id, entry] of markers) {
       if (!ids.has(id)) {
         entry.marker.remove()
         markers.delete(id)
       }
     }
-    for (const p of places.value) {
+    for (const p of shown) {
       const entry = markers.get(p.id)
-      if (!entry) {
+      if (entry && entry.place.icon !== p.icon) {
+        entry.marker.remove()
+        markers.delete(p.id)
+      }
+      if (!markers.has(p.id)) {
         markers.set(p.id, placeMarker(map, p))
         continue
       }
@@ -102,6 +147,24 @@ export function attach(map) {
       }
     }
   })
+
+  effect(() => {
+    const offset = pinOffset(markerScale())
+    for (const entry of markers.values()) {
+      if (!iconFor(entry.place.icon).anchor) entry.marker.setOffset(offset)
+    }
+  })
+}
+
+function EyeIcon({ off }) {
+  return (
+    <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"
+      fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M1 12s4-7 11-7 11 7 11 7-4 7-11 7S1 12 1 12z" />
+      <circle cx="12" cy="12" r="3" />
+      {off && <line x1="3" y1="3" x2="21" y2="21" />}
+    </svg>
+  )
 }
 
 export function Places({ map }) {
@@ -121,7 +184,13 @@ export function Places({ map }) {
   // dragging a row changes both together.
   const orderedSelected = places.value.filter((p) => selected.value.includes(p.id)).map((p) => p.id)
 
+  const pickIcon = (id, icon) => {
+    iconMenu.value = null
+    commit(setPlaceIcon(places.value, id, icon))
+  }
+
   const onDragStart = (id) => (e) => {
+    iconMenu.value = null
     e.dataTransfer.effectAllowed = 'move'
     e.dataTransfer.setData('text/plain', id)
     dragging.value = true
@@ -174,7 +243,8 @@ export function Places({ map }) {
           >
             {places.value.map((p) => {
               const order = orderedSelected.indexOf(p.id)
-              return (
+              const menuOpen = iconMenu.value === p.id
+              return [
                 <li
                   class="place"
                   key={p.id}
@@ -193,10 +263,42 @@ export function Places({ map }) {
                     onChange={() => toggleSelected(p.id)}
                   />
                   <span class="place-order">{order >= 0 ? order + 1 : ''}</span>
+                  <button
+                    class="place-icon"
+                    title="Choose the map icon"
+                    aria-haspopup="menu"
+                    aria-expanded={menuOpen}
+                    onClick={() => { iconMenu.value = menuOpen ? null : p.id }}
+                  >
+                    {iconFor(p.icon).emoji}
+                  </button>
                   <button class="place-name" onClick={() => go(p)}>{p.name}</button>
+                  <button
+                    class="place-hide"
+                    title={p.hidden ? 'Show on the map' : 'Hide from the map'}
+                    aria-pressed={p.hidden}
+                    onClick={() => commit(setPlaceHidden(places.value, p.id, !p.hidden))}
+                  >
+                    <EyeIcon off={p.hidden} />
+                  </button>
                   <button class="place-del" title="Delete" onClick={() => commit(removePlace(places.value, p.id))}>×</button>
-                </li>
-              )
+                </li>,
+                menuOpen && (
+                  <li class="icon-menu" key={p.id + '-icons'} role="menu">
+                    {ICONS.map((i) => (
+                      <button
+                        key={i.id}
+                        class={'icon-option' + (i.id === p.icon ? ' current' : '')}
+                        role="menuitem"
+                        data-icon={i.id}
+                        onClick={() => pickIcon(p.id, i.id)}
+                      >
+                        {i.emoji} {i.name}
+                      </button>
+                    ))}
+                  </li>
+                ),
+              ]
             })}
             <li class="place-dropzone" aria-hidden="true" />
           </ul>

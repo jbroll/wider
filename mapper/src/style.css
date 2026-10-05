@@ -30,8 +30,8 @@ html, body {
   color: #111;
   border-radius: 4px;
   box-shadow: 0 1px 4px rgba(0, 0, 0, 0.4);
-  min-width: 12rem;
-  max-width: 16rem;
+  min-width: 14rem;
+  max-width: 20rem;
 }
 
 #places-toggle {
@@ -89,6 +89,63 @@ html, body {
   color: #555;
 }
 
+.place-icon {
+  flex: none;
+  padding: 0 2px;
+  border: 0;
+  border-radius: 3px;
+  background: none;
+  font: inherit;
+  cursor: pointer;
+}
+
+.place-icon:hover,
+.place-icon[aria-expanded="true"] {
+  background: rgba(0, 0, 0, 0.1);
+}
+
+.icon-menu {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px;
+  margin: 0 0 4px 34px;
+}
+
+.icon-option {
+  padding: 2px 6px;
+  border: 1px solid rgba(0, 0, 0, 0.15);
+  border-radius: 3px;
+  background: #fff;
+  font: inherit;
+  cursor: pointer;
+}
+
+.icon-option:hover {
+  background: rgba(0, 0, 0, 0.07);
+}
+
+.icon-option.current {
+  font-weight: 600;
+  background: rgba(0, 0, 0, 0.12);
+}
+
+.place-marker svg {
+  width: calc(27px * var(--text-scale, 1) * var(--icon-scale, 1));
+  height: calc(41px * var(--text-scale, 1) * var(--icon-scale, 1));
+}
+
+.place-emoji {
+  display: block;
+  font-size: calc(28px * var(--text-scale, 1) * var(--icon-scale, 1));
+  line-height: 1;
+  cursor: pointer;
+}
+
+.place-marker[data-icon="star"] .place-label,
+.place-marker[data-icon="finish"] .place-label {
+  top: 50%;
+}
+
 .place-name {
   flex: 1;
   padding: 4px;
@@ -104,6 +161,25 @@ html, body {
 
 .place-name:hover {
   background: rgba(0, 0, 0, 0.07);
+}
+
+.place-hide {
+  display: flex;
+  flex: none;
+  padding: 2px;
+  border: 0;
+  border-radius: 3px;
+  background: none;
+  color: #777;
+  cursor: pointer;
+}
+
+.place-hide:hover {
+  background: rgba(0, 0, 0, 0.07);
+}
+
+.place-hide[aria-pressed="true"] {
+  color: #b00;
 }
 
 .place-del {
@@ -210,6 +286,32 @@ html, body {
   cursor: pointer;
 }
 
+#styles .pins-heading {
+  padding: 2px 8px;
+  color: #555;
+}
+
+#styles .pin-none {
+  width: auto;
+  height: 1.4rem;
+  padding: 0 6px;
+  border: 0;
+  border-radius: 3px;
+  background: none;
+  color: #111;
+  font: inherit;
+  cursor: pointer;
+}
+
+#styles .pin-none:hover {
+  background: rgba(0, 0, 0, 0.07);
+}
+
+#styles .pin-none[aria-pressed="true"] {
+  font-weight: 600;
+  background: rgba(0, 0, 0, 0.12);
+}
+
 #route-info {
   display: flex;
   flex-wrap: wrap;
@@ -269,10 +371,11 @@ html, body {
   transform: translateY(-50%);
   padding: 2px 6px;
   border-radius: 3px;
-  background: rgba(28, 28, 28, 0.82);
-  color: #fff;
+  background: var(--pin-background, rgba(28, 28, 28, 0.82));
+  color: var(--pin-text, #fff);
+  text-shadow: var(--pin-halo, none);
   font-family: system-ui, sans-serif;
-  font-size: calc(13px * var(--text-scale, 1));
+  font-size: calc(13px * var(--text-scale, 1) * var(--pin-scale, 1));
   white-space: nowrap;
   pointer-events: none;
 }

@@ -320,6 +320,175 @@ test('dragging a marker moves the place, persists it, and refetches the route th
   expect(lastBody.coordinates[0][1]).toBeCloseTo(stored.lat, 3)
 })
 
+async function openWithParis(page, icon) {
+  await open(page)
+  await page.evaluate((i) => {
+    localStorage.setItem('mapper.places', JSON.stringify(
+      [{ id: 'a1', name: 'Paris', lat: 48.8566, lon: 2.3522, zoom: 12, bearing: 0, icon: i }]))
+  }, icon)
+  await page.reload()
+  await page.waitForFunction(() => window.mapper && window.mapper.map.loaded())
+  await page.evaluate(() => window.mapper.map.jumpTo({ center: [2.3522, 48.8566], zoom: 10 }))
+}
+
+const storedIcon = (page) => page.evaluate(() => JSON.parse(localStorage.getItem('mapper.places'))[0].icon)
+
+async function pickIcon(page, id) {
+  await page.click('#places-list .place-icon')
+  await page.click(`.icon-menu .icon-option[data-icon="${id}"]`)
+}
+
+test('picking Star swaps the pin for a star marker, and it survives a reload', async ({ page }) => {
+  await openWithParis(page)
+  await expect(page.locator('#places-list .place-icon')).toHaveText('📍')
+  await expect(page.locator('.place-marker svg')).toHaveCount(1)
+  await pickIcon(page, 'star')
+  await expect(page.locator('.icon-menu')).toHaveCount(0)
+  await expect(page.locator('.place-marker .place-emoji')).toHaveText('⭐')
+  await expect(page.locator('.place-marker svg')).toHaveCount(0)
+  await expect(page.locator('.place-marker .place-label')).toHaveText('Paris')
+  await expect(page.locator('#places-list .place-icon')).toHaveText('⭐')
+  expect(await storedIcon(page)).toBe('star')
+
+  await page.reload()
+  await page.waitForFunction(() => window.mapper && window.mapper.map.loaded())
+  await expect(page.locator('.place-marker .place-emoji')).toHaveText('⭐')
+  await expect(page.locator('.place-marker')).toHaveCount(1)
+})
+
+const markerPoint = (page, corner) => page.evaluate((c) => {
+  const canvas = window.mapper.map.getCanvasContainer().getBoundingClientRect()
+  const r = document.querySelector('.place-marker').getBoundingClientRect()
+  const x = c === 'center' ? r.left + r.width / 2 : r.left
+  const y = c === 'center' ? r.top + r.height / 2 : r.bottom
+  return { x: x - canvas.left, y: y - canvas.top }
+}, corner)
+
+const projectParis = (page) => page.evaluate(() => window.mapper.map.project([2.3522, 48.8566]))
+
+// The flag glyph is shifted left inside its marker element so the element's
+// bottom-left corner is the foot of the pole.
+for (const [icon, corner] of [['star', 'center'], ['finish', 'bottom-left']]) {
+  test(`a ${icon} marker puts its ${corner} on the coordinate at 100% and at 200%`, async ({ page }) => {
+    await openWithParis(page, icon)
+    for (const clicks of [0, 10]) {
+      for (let i = 0; i < clicks; i += 1) await page.click(up('pin-icon'))
+      const projected = await projectParis(page)
+      const point = await markerPoint(page, corner)
+      expect(Math.abs(point.x - projected.x)).toBeLessThanOrEqual(2)
+      expect(Math.abs(point.y - projected.y)).toBeLessThanOrEqual(2)
+    }
+  })
+}
+
+const emojiSize = (page) =>
+  page.locator('.place-emoji').evaluate((el) => parseFloat(getComputedStyle(el).fontSize))
+const labelSize = async (page) => parseFloat(await labelStyle(page, 'fontSize'))
+
+test('emoji icons scale with Text times Icon', async ({ page }) => {
+  await openWithParis(page, 'star')
+  expect(await emojiSize(page)).toBeCloseTo(28, 1)
+  await page.click(up('text'))
+  for (let i = 0; i < 10; i += 1) await page.click(up('pin-icon'))
+  await expect(page.locator(reading('pin-icon'))).toHaveText('200%')
+  await expect.poll(() => emojiSize(page)).toBeCloseTo(28 * 1.1 * 2, 1)
+})
+
+test('Icon leaves the label alone and Label leaves the icon alone', async ({ page }) => {
+  await openWithParis(page, 'star')
+  for (let i = 0; i < 5; i += 1) await page.click(up('pin-icon'))
+  await expect.poll(() => emojiSize(page)).toBeCloseTo(42, 1)
+  expect(await labelSize(page)).toBeCloseTo(13, 1)
+  for (let i = 0; i < 10; i += 1) await page.click(up('pin-label'))
+  await expect.poll(() => labelSize(page)).toBeCloseTo(26, 1)
+  expect(await emojiSize(page)).toBeCloseTo(42, 1)
+})
+
+test('Icon steps down to 50% and stops there; Label still stops at 100%', async ({ page }) => {
+  await openWithParis(page, 'star')
+  await expect(page.locator(down('pin-icon'))).toBeEnabled()
+  await expect(page.locator(down('pin-label'))).toBeDisabled()
+  for (let i = 0; i < 5; i += 1) await page.click(down('pin-icon'))
+  await expect(page.locator(reading('pin-icon'))).toHaveText('50%')
+  await expect(page.locator(down('pin-icon'))).toBeDisabled()
+  await expect.poll(() => emojiSize(page)).toBeCloseTo(14, 1)
+  await expect.poll(() => page.evaluate(() => JSON.parse(localStorage.getItem('mapper.pins')).iconScale))
+    .toBe(0.5)
+})
+
+const eye = '#places-list .place-hide'
+
+test('the eye hides a place marker, keeps its row, and survives a reload', async ({ page }) => {
+  await openWithParis(page, 'star')
+  await expect(page.locator(eye)).toHaveAttribute('aria-pressed', 'false')
+  await page.click(eye)
+  await expect(page.locator('.place-marker')).toHaveCount(0)
+  await expect(page.locator(eye)).toHaveAttribute('aria-pressed', 'true')
+  await expect(page.locator('#places-list .place-name')).toHaveText(['Paris'])
+  expect(await page.evaluate(() => JSON.parse(localStorage.getItem('mapper.places'))[0].hidden)).toBe(true)
+
+  await page.reload()
+  await page.waitForFunction(() => window.mapper && window.mapper.map.loaded())
+  await expect(page.locator('.place-marker')).toHaveCount(0)
+  await page.click(eye)
+  await expect(page.locator('.place-marker .place-emoji')).toHaveText('⭐')
+  await expect(page.locator(eye)).toHaveAttribute('aria-pressed', 'false')
+})
+
+test('clicking a hidden place by name still flies to it', async ({ page }) => {
+  await openWithParis(page)
+  await page.click(eye)
+  await page.evaluate(() => window.mapper.map.jumpTo({ center: [10, 30], zoom: 4 }))
+  await page.click('#places-list .place-name')
+  await expect.poll(() => center(page).then(([lon]) => Math.round(lon))).toBe(2)
+})
+
+test('the blue pin grows with Text times Icon and keeps its tip on the coordinate', async ({ page }) => {
+  await openWithParis(page, 'pin')
+  const width = () => page.locator('.place-marker svg').evaluate((el) => el.getBoundingClientRect().width)
+  expect(await width()).toBeCloseTo(27, 1)
+  await page.click(up('text'))
+  for (let i = 0; i < 10; i += 1) await page.click(up('pin-icon'))
+  const s = 1.1 * 2
+  await expect.poll(width).toBeCloseTo(27 * s, 1)
+  // MapLibre centres the default pin and lifts it 14px so the tip, not the
+  // centre, is on the point; scaled, the lift is 14 * s.
+  const projected = await projectParis(page)
+  const centre = await markerPoint(page, 'center')
+  expect(Math.abs(centre.x - projected.x)).toBeLessThanOrEqual(2)
+  expect(Math.abs(centre.y - (projected.y - 14 * s))).toBeLessThanOrEqual(2)
+})
+
+test('a star marker drags and moves the place', async ({ page }) => {
+  await openWithParis(page, 'star')
+  await dragPin(page, 'Paris', 60, 40)
+  const stored = await page.evaluate(() => JSON.parse(localStorage.getItem('mapper.places'))[0])
+  expect(stored.lat).not.toBeCloseTo(48.8566, 3)
+  expect(stored.icon).toBe('star')
+})
+
+test('picking Pin again restores the blue pin', async ({ page }) => {
+  await openWithParis(page, 'finish')
+  await expect(page.locator('.place-marker .place-emoji')).toHaveText('🏁')
+  await pickIcon(page, 'pin')
+  await expect(page.locator('.place-marker svg')).toHaveCount(1)
+  await expect(page.locator('.place-marker .place-emoji')).toHaveCount(0)
+  await expect(page.locator('.place-marker')).toHaveCount(1)
+  expect(await storedIcon(page)).toBe('pin')
+})
+
+test('Escape closes the icon menu without changing the icon', async ({ page }) => {
+  await openWithParis(page)
+  await page.click('#places-list .place-icon')
+  await expect(page.locator('.icon-menu')).toBeVisible()
+  await page.keyboard.press('Escape')
+  await expect(page.locator('.icon-menu')).toHaveCount(0)
+  await page.click('#places-list .place-icon')
+  await page.mouse.click(500, 500)
+  await expect(page.locator('.icon-menu')).toHaveCount(0)
+  await expect(page.locator('.place-marker svg')).toHaveCount(1)
+})
+
 test('a marker drag does not fly the map', async ({ page }) => {
   await open(page)
   await page.evaluate(() => {
@@ -570,11 +739,12 @@ test('stepping Text up scales the labels and fetches no style', async ({ page })
   expect(styleRequests).toBe(0)
 })
 
-test('stepping Text to the top reads 200% and disables the up button', async ({ page }) => {
+test('stepping Text past 200% keeps going with the up button enabled', async ({ page }) => {
   await open(page)
-  for (let i = 0; i < 10; i += 1) await page.click(up('text'))
-  await expect(page.locator(reading('text'))).toHaveText('200%')
-  await expect(page.locator(up('text'))).toBeDisabled()
+  for (let i = 0; i < 11; i += 1) await page.click(up('text'))
+  await expect(page.locator(reading('text'))).toHaveText('210%')
+  await expect(page.locator(up('text'))).toBeEnabled()
+  await expect.poll(() => textSize(page, 'place-label')).toBeCloseTo(25.2, 5)
 })
 
 test('stepping Text up grows a saved-place marker', async ({ page }) => {
@@ -590,6 +760,115 @@ test('stepping Text up grows a saved-place marker', async ({ page }) => {
     page.locator('.place-label').evaluate((el) => getComputedStyle(el).fontSize)).not.toBe(before)
   const after = await page.locator('.place-label').evaluate((el) => getComputedStyle(el).fontSize)
   expect(parseFloat(after)).toBeGreaterThan(parseFloat(before))
+})
+
+async function dropPin(page, name) {
+  const box = await page.locator('#map canvas').boundingBox()
+  await page.mouse.click(box.width / 2, box.height / 2, { button: 'right' })
+  await page.fill('#pin-name', name)
+  await page.press('#pin-name', 'Enter')
+  await expect(page.locator('.place-label')).toHaveText(name)
+}
+
+const labelStyle = (page, prop) =>
+  page.locator('.place-label').evaluate((el, p) => getComputedStyle(el)[p], prop)
+
+const countSetStyle = (page) => page.evaluate(() => {
+  window.__setStyleCalls = 0
+  const map = window.mapper.map
+  const orig = map.setStyle.bind(map)
+  map.setStyle = (...args) => { window.__setStyleCalls += 1; return orig(...args) }
+})
+
+const pinSwatch = (id) => '#styles .color-swatch[data-color="pin-' + id + '"]'
+const pinClear = (id) => '#styles .color-clear[data-color="pin-' + id + '"]'
+const pinNone = '#styles .pin-none'
+
+test('stepping pin Label up grows only the pin label, with no setStyle', async ({ page }) => {
+  await open(page)
+  await dropPin(page, 'Middle')
+  await countSetStyle(page)
+  await expect(page.locator(down('pin-label'))).toBeDisabled()
+  for (let i = 0; i < 12; i += 1) await page.click(up('pin-label'))
+  await expect(page.locator(reading('pin-label'))).toHaveText('220%')
+  await expect(page.locator(up('pin-label'))).toBeEnabled()
+  await expect.poll(async () => parseFloat(await labelStyle(page, 'fontSize'))).toBeCloseTo(28.6, 1)
+  expect(await textSize(page, 'place-label')).toBe(12)
+  expect(await page.evaluate(() => window.__setStyleCalls)).toBe(0)
+})
+
+test('Text and pin Label multiply on the pin label', async ({ page }) => {
+  await open(page)
+  await dropPin(page, 'Middle')
+  await page.click(up('text'))
+  for (let i = 0; i < 5; i += 1) await page.click(up('pin-label'))
+  await expect.poll(async () => parseFloat(await labelStyle(page, 'fontSize'))).toBeCloseTo(21.45, 1)
+})
+
+test('the pin text and background pickers recolor the label with no setStyle', async ({ page }) => {
+  await open(page)
+  await dropPin(page, 'Middle')
+  await countSetStyle(page)
+  await expect(page.locator(pinSwatch('text'))).toHaveValue('#ffffff')
+  await page.locator(pinSwatch('text')).fill('#ffcc00')
+  await page.locator(pinSwatch('background')).fill('#123456')
+  await expect.poll(() => labelStyle(page, 'color')).toBe('rgb(255, 204, 0)')
+  await expect.poll(() => labelStyle(page, 'backgroundColor')).toBe('rgb(18, 52, 86)')
+  expect(await labelStyle(page, 'textShadow')).toBe('none')
+  expect(await page.evaluate(() => window.__setStyleCalls)).toBe(0)
+})
+
+test('None makes the pin background transparent and outlines the text', async ({ page }) => {
+  await open(page)
+  await dropPin(page, 'Middle')
+  await expect(page.locator(pinNone)).toHaveAttribute('aria-pressed', 'false')
+  await page.click(pinNone)
+  await expect(page.locator(pinNone)).toHaveAttribute('aria-pressed', 'true')
+  await expect.poll(() => labelStyle(page, 'backgroundColor')).toBe('rgba(0, 0, 0, 0)')
+  expect(await labelStyle(page, 'textShadow')).toContain('rgb(0, 0, 0)')
+
+  await page.locator(pinSwatch('text')).fill('#111111')
+  await expect.poll(() => labelStyle(page, 'textShadow')).toContain('rgb(255, 255, 255)')
+
+  await page.locator(pinSwatch('background')).fill('#123456')
+  await expect(page.locator(pinNone)).toHaveAttribute('aria-pressed', 'false')
+  await expect.poll(() => labelStyle(page, 'backgroundColor')).toBe('rgb(18, 52, 86)')
+  expect(await labelStyle(page, 'textShadow')).toBe('none')
+})
+
+test('the pin clear buttons restore the default colors', async ({ page }) => {
+  await open(page)
+  await dropPin(page, 'Middle')
+  await expect(page.locator(pinClear('text'))).toBeDisabled()
+  await expect(page.locator(pinClear('background'))).toBeDisabled()
+  await page.locator(pinSwatch('text')).fill('#ffcc00')
+  await page.click(pinNone)
+  await page.click(pinClear('text'))
+  await page.click(pinClear('background'))
+  await expect.poll(() => labelStyle(page, 'color')).toBe('rgb(255, 255, 255)')
+  await expect.poll(() => labelStyle(page, 'backgroundColor')).toBe('rgba(28, 28, 28, 0.82)')
+  await expect(page.locator(pinNone)).toHaveAttribute('aria-pressed', 'false')
+  await expect(page.locator(pinClear('text'))).toBeDisabled()
+  await expect(page.locator(pinClear('background'))).toBeDisabled()
+})
+
+test('pin label settings survive a reload', async ({ page }) => {
+  await open(page)
+  await dropPin(page, 'Middle')
+  await page.click(up('pin-label'))
+  for (let i = 0; i < 3; i += 1) await page.click(up('pin-icon'))
+  await page.locator(pinSwatch('text')).fill('#ffcc00')
+  await page.click(pinNone)
+  await expect.poll(() => page.evaluate(() => JSON.parse(localStorage.getItem('mapper.pins'))))
+    .toEqual({ scale: 1.1, iconScale: 1.3, text: '#ffcc00', background: 'transparent' })
+  await page.reload()
+  await page.waitForFunction(() => window.mapper && window.mapper.map.loaded())
+  await expect(page.locator(reading('pin-label'))).toHaveText('110%')
+  await expect(page.locator(reading('pin-icon'))).toHaveText('130%')
+  await expect(page.locator(pinSwatch('text'))).toHaveValue('#ffcc00')
+  await expect(page.locator(pinNone)).toHaveAttribute('aria-pressed', 'true')
+  expect(await labelStyle(page, 'color')).toBe('rgb(255, 204, 0)')
+  expect(await labelStyle(page, 'backgroundColor')).toBe('rgba(0, 0, 0, 0)')
 })
 
 test('stepping Buildings up raises the building layer minzoom', async ({ page }) => {
@@ -617,9 +896,7 @@ test('the steppers disable at the ends of their ranges', async ({ page }) => {
   await expect(page.locator(down('text'))).toBeDisabled()
   await expect(page.locator(down('buildings'))).toBeDisabled()
   await expect(page.locator(up('text'))).toBeEnabled()
-  for (let i = 0; i < 10; i += 1) await page.click(up('text'))
-  await expect(page.locator(reading('text'))).toHaveText('200%')
-  await expect(page.locator(up('text'))).toBeDisabled()
+  await page.click(up('text'))
   await expect(page.locator(down('text'))).toBeEnabled()
   for (let i = 0; i < 4; i += 1) await page.click(up('buildings'))
   await expect(page.locator(reading('buildings'))).toHaveText('Off')

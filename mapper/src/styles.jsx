@@ -6,6 +6,7 @@ import { loadTweaks, saveTweaks, applyTweaks } from './tweaks.js'
 import { tweaks, Steppers } from './tweaks.jsx'
 import { loadColors, saveColors, applyColors } from './colors.js'
 import { colors, styleColors, seedColors, Pickers } from './colors.jsx'
+import { initPins, PinControls } from './pins.jsx'
 import { applyRoute } from './route.js'
 import { route } from './route.jsx'
 
@@ -112,6 +113,7 @@ export function addStyleControl(map, store, style) {
   current.value = loadStyle(store)
   tweaks.value = loadTweaks(store)
   setMarkerScale(tweaks.value.textScale)
+  initPins(store)
   colors.value = loadColors(store)
   committed = colors.value
   fetched = style
@@ -164,6 +166,8 @@ export function addStyleControl(map, store, style) {
           <Steppers onChange={change} />
           <div class="tweak-divider" />
           <Pickers onPreview={previewColors} onCommit={changeColors} />
+          <div class="tweak-divider" />
+          <PinControls />
         </>,
         el,
       )

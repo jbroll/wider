@@ -266,6 +266,18 @@ test('the route preference is remembered across a reload', async ({ page }) => {
   await expect.poll(() => pref).toBe('recommended')
 })
 
+test('a hidden place is still a waypoint', async ({ page }) => {
+  await open(page, [{ ...PLACES[0], hidden: true }, PLACES[1]])
+  await expect(page.locator('.place-marker')).toHaveCount(1)
+  const requested = page.waitForRequest('**/192.168.1.169:8082/**')
+  await page.route('**/192.168.1.169:8082/**', (r) =>
+    r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(orsResponse()) }))
+  await page.check(check('Alpha'))
+  await page.check(check('Bravo'))
+  const req = await requested
+  expect(req.postDataJSON().coordinates).toEqual([[-73.9396, 42.8142], [-73.931, 42.809]])
+})
+
 test('a route is not remembered across a reload', async ({ page }) => {
   await open(page)
   await page.route('**/192.168.1.169:8082/**', (r) =>

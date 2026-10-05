@@ -41,11 +41,12 @@ at the bottom of the window. The centre, zoom, bearing, saved places, the
 current route and a half-typed pin all survive a switch.
 
 Below the style buttons, two steppers adjust how the chosen style draws. The
-`−` and `+` buttons grey out at the ends of the range.
+`−` button greys out at the bottom of each range, and `+` greys out only on
+Buildings, at Off.
 
-- **Text** scales every label in the style, from 100% to 200% in ten-point
-  steps. It also scales the saved-place markers, so they stay legible
-  alongside the labels.
+- **Text** scales every label in the style, from 100% up in ten-point steps,
+  with no upper limit. It also scales the saved-place markers and their
+  labels, so they stay legible alongside the map labels.
 - **Buildings** sets the zoom below which buildings are not drawn: 13, 14, 15,
   16, or Off. Buildings only exist in the tiles from zoom 13, so 13 is the
   default and draws them as early as the data allows. Off removes the
@@ -83,6 +84,24 @@ that group on the style's own colors without disturbing the other three.
 Text, Buildings and the four colors are one setting shared by all five styles,
 not remembered per style.
 
+At the bottom, **Pin labels** sets how saved-place markers and their names
+look:
+
+- **Icon** scales the marker icons, from 50% up, and **Label** scales the name
+  labels, from 100% up. Both move in ten-point steps with no upper limit, and
+  each multiplies with Text: Text at 120% and Icon at 150% draws icons at
+  180%. Each icon keeps its point on the coordinate at any size.
+- **Text** sets the label color. The `×` puts it back to white.
+- **Background** sets the color behind the label. A picked color draws solid;
+  the `×` puts back the default translucent dark gray.
+- **No background** removes the background, leaving the name on the map with
+  a thin black or white outline, whichever contrasts with the text color.
+  Picking a background color or clicking it again turns it off.
+
+The pickers update the labels as the dialog moves. The pin label settings are
+saved to `localStorage` under `mapper.pins`; a missing or unrecognised value
+falls back on its own field without disturbing the others.
+
 ## Saved places
 
 Right-click the map to drop a pin and open a name field. Press Enter to
@@ -92,11 +111,29 @@ moment the pin was dropped.
 
 Saved places appear in the panel at the top-left. Each row has, left to right:
 a `⠿` drag handle, a route checkbox, the place's position in the route when
-checked, the name, and a `×` delete button.
+checked, its map icon, the name, an eye toggle, and a `×` delete button.
 
-Each place also gets a marker on the map: the same pin used for the
-right-click pending marker, at the exact coordinate, with its name in a label
-beside it. Clicking a place's name in the panel, or its pin, flies the map
+The eye hides the place's marker and label from the map; it turns red and
+struck through while the place is hidden, and clicking it again brings the
+marker back. A hidden place keeps its row, clicking its name still flies the
+map to it, and if it is checked it is still a route waypoint. The choice is
+saved with the place.
+
+Each place also gets a marker on the map at the exact coordinate, with its
+name in a label beside it. A new place gets the same blue pin used for the
+right-click pending marker. Clicking the icon in a place's row opens a menu
+under the row with the icons to choose from:
+
+| Icon | Marker | Sits on the coordinate by |
+|---|---|---|
+| 📍 Pin | the blue pin | the pin's tip |
+| ⭐ Star | a star | its center |
+| 🏁 Finish flag | a chequered flag | the foot of its pole |
+
+Picking one replaces the marker straight away; Escape or a click elsewhere
+closes the menu without a change. The icon is saved with the place. Icons
+scale with Text and the pin Icon stepper; the pin label colors apply to the
+name label only. Clicking a place's name in the panel, or its pin, flies the map
 back to its saved center, zoom, and bearing. Dragging the pin moves the
 place: dropping it updates the stored position and, if the place is part of
 the current route, redraws the route through the new point. The `×` button
