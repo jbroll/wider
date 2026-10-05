@@ -39,8 +39,8 @@ The pure modules (`view.js`, `styles.js`, `tweaks.js`, `colors.js`,
 instead of reading the global directly. That is what lets them run under
 `node --test` without a browser. `src/store.js` wraps `window.localStorage` so
 a thrown access (a browser policy blocking site data, or a quota error) yields
-a no-op store instead of crashing the page; `main.jsx`, `places.jsx` and
-`styles.jsx` pass that wrapper where a store is needed.
+a no-op store instead of crashing the page; `main.jsx`, `places.jsx`,
+`route.jsx` and `styles.jsx` pass that wrapper where a store is needed.
 
 ## Persistence
 
@@ -51,6 +51,7 @@ a no-op store instead of crashing the page; `main.jsx`, `places.jsx` and
 | `mapper.tweaks` | `tweaks.js` | `{textScale, buildingMinZoom}` | `{1, 13}`, whole document on any bad field |
 | `mapper.colors` | `colors.js` | `{places, streets, pois, water}` | per group; a bad color resets only its own group |
 | `mapper.places` | `places.js` | array of `{id, name, lat, lon, zoom, bearing}` | `[]`; invalid entries dropped individually |
+| `mapper.routePref` | `route.js` | ORS `preference`: `shortest` or `recommended` | `shortest` |
 
 Validation bounds: longitude ±180, latitude ±90, zoom 0–24, pitch 0–85.
 Bearing is normalised into 0–360; a view's stored bearing must first lie
@@ -184,13 +185,20 @@ rejected - circles land on the LineString's vertices, which ORS spaces by
 road geometry rather than evenly, so the dots would cluster at corners and
 thin out along straights.
 
+Every request sends an explicit ORS `preference`, defaulting to `shortest`.
+ORS's own default, `recommended`, weights `foot-walking` away from tertiary and
+busier roads, so a walk along a main street such as Albany Street in
+Schenectady comes back as a detour through side streets 60% longer. Quiet in
+the route row keeps that weighting available.
+
 `route.jsx` holds the selection (`selected`, membership only - which places
 are in the route) and the fetched `route` signal, and drives both from one
 place: `attachRoute(map)` sets up two `effect`s. One prunes `selected` of an
 id whose place got deleted, reusing the identity-preserving idiom
 `places.jsx` already uses for its marker set - a no-op write when nothing
 changed - so pruning cannot loop against the second effect. The second
-filters `places.value` down to the selected ids, in list order, and debounces
+filters `places.value` down to the selected ids, in list order, reads
+`routePref` so a Direct/Quiet click also refetches, and debounces
 the fetch 300ms after the last change, the same constant and shape as
 `main.jsx`'s `moveend` save, so ticking several checkboxes - or dragging a
 row - in a row sends one request. Waypoint order is list order, not tick

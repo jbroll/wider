@@ -212,6 +212,7 @@ html, body {
 
 #route-info {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: 6px;
   margin-top: 4px;
@@ -226,6 +227,29 @@ html, body {
 
 #route-summary {
   flex: 1;
+}
+
+.route-prefs {
+  display: flex;
+}
+
+.route-pref {
+  padding: 2px 6px;
+  border: 0;
+  border-radius: 3px;
+  background: none;
+  color: #111;
+  font: inherit;
+  cursor: pointer;
+}
+
+.route-pref:hover {
+  background: rgba(0, 0, 0, 0.07);
+}
+
+.route-pref.current {
+  font-weight: 600;
+  background: rgba(0, 0, 0, 0.12);
 }
 
 #route-clear {

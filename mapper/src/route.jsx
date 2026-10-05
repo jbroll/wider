@@ -2,7 +2,11 @@ import { signal, effect } from '@preact/signals'
 
 import { places, selected } from './places.jsx'
 import { toast, reapplyStyle } from './styles.jsx'
-import { directionsUrl, buildBody, parseRoute, formatDistance, formatDuration } from './route.js'
+import { store } from './store.js'
+import {
+  ROUTE_PREFS, directionsUrl, buildBody, parseRoute, formatDistance, formatDuration,
+  loadRoutePref, saveRoutePref,
+} from './route.js'
 
 const SAVE_DELAY = 300
 
@@ -10,12 +14,13 @@ const UNREACHABLE = 'Could not reach the routing service. Is mapper on the local
 const NOT_ROUTABLE = 'No walking route there; routing only covers the Schenectady area.'
 
 export const route = signal(null)
+export const routePref = signal(loadRoutePref(store))
 
 let map = null
 let timer = 0
 let token = 0
 
-async function run(ids) {
+async function run(ids, pref) {
   const t = ++token
   const points = ids.map((id) => places.value.find((p) => p.id === id)).filter(Boolean)
   if (points.length < 2) {
@@ -30,7 +35,7 @@ async function run(ids) {
     const res = await fetch(directionsUrl(), {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(buildBody(points)),
+      body: JSON.stringify(buildBody(points, pref)),
     })
     if (t !== token) return
     if (res.status === 404) {
@@ -68,9 +73,14 @@ export function attachRoute(m) {
 
   effect(() => {
     const ids = places.value.filter((p) => selected.value.includes(p.id)).map((p) => p.id)
+    const pref = routePref.value
     clearTimeout(timer)
-    timer = setTimeout(() => run(ids), SAVE_DELAY)
+    timer = setTimeout(() => run(ids, pref), SAVE_DELAY)
   })
+}
+
+function setRoutePref(id) {
+  routePref.value = saveRoutePref(store, id) || routePref.value
 }
 
 export function RouteStatus() {
@@ -79,6 +89,19 @@ export function RouteStatus() {
   return (
     <div id="route-info">
       <span id="route-summary">{formatDistance(r.distance)} · {formatDuration(r.duration)}</span>
+      <span class="route-prefs">
+        {ROUTE_PREFS.map((p) => (
+          <button
+            key={p.id}
+            class={'route-pref' + (routePref.value === p.id ? ' current' : '')}
+            data-pref={p.id}
+            aria-pressed={routePref.value === p.id}
+            onClick={() => setRoutePref(p.id)}
+          >
+            {p.name}
+          </button>
+        ))}
+      </span>
       <button id="route-clear" onClick={() => { selected.value = [] }}>Clear route</button>
     </div>
   )

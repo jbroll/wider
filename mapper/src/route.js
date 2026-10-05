@@ -4,13 +4,41 @@ export const PROFILE = 'foot-walking'
 export const ROUTE_SOURCE_ID = 'mapper-route'
 export const ROUTE_LAYER_ID = 'mapper-route-line'
 
+export const ROUTE_PREF_KEY = 'mapper.routePref'
+
+// Ids are ORS `preference` values. ORS defaults to recommended, which for
+// foot-walking detours around tertiary and busier roads.
+export const ROUTE_PREFS = [
+  { id: 'shortest', name: 'Direct' },
+  { id: 'recommended', name: 'Quiet' },
+]
+
+export const DEFAULT_ROUTE_PREF = 'shortest'
+
+export function validateRoutePref(value) {
+  return ROUTE_PREFS.some((p) => p.id === value) ? value : null
+}
+
+export function loadRoutePref(store) {
+  return validateRoutePref(store.getItem(ROUTE_PREF_KEY)) || DEFAULT_ROUTE_PREF
+}
+
+export function saveRoutePref(store, id) {
+  const clean = validateRoutePref(id)
+  if (clean) store.setItem(ROUTE_PREF_KEY, clean)
+  return clean
+}
+
 export function directionsUrl() {
   return ORS_BASE_URL + '/v2/directions/' + PROFILE + '/geojson'
 }
 
 // ORS wants [lon, lat] pairs in the order the route should visit them.
-export function buildBody(points) {
-  return { coordinates: points.map((p) => [p.lon, p.lat]) }
+export function buildBody(points, pref) {
+  return {
+    coordinates: points.map((p) => [p.lon, p.lat]),
+    preference: validateRoutePref(pref) || DEFAULT_ROUTE_PREF,
+  }
 }
 
 export function parseRoute(json) {

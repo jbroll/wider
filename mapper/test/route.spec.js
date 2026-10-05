@@ -227,6 +227,45 @@ test('an unreachable service shows its own toast, distinct from not-routable', a
   await expect.poll(() => hasLayer(page)).toBe(false)
 })
 
+test('Direct is the default and Quiet re-fetches with the recommended preference', async ({ page }) => {
+  await open(page)
+  const prefs = []
+  await page.route('**/192.168.1.169:8082/**', (r) => {
+    prefs.push(r.request().postDataJSON().preference)
+    return r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(orsResponse()) })
+  })
+  await page.check(check('Alpha'))
+  await page.check(check('Bravo'))
+  await expect.poll(() => prefs).toEqual(['shortest'])
+  await expect(page.locator('#route-info .route-pref[data-pref="shortest"]')).toHaveAttribute('aria-pressed', 'true')
+
+  await page.click('#route-info .route-pref[data-pref="recommended"]')
+  await expect.poll(() => prefs).toEqual(['shortest', 'recommended'])
+  await expect(page.locator('#route-info .route-pref[data-pref="recommended"]')).toHaveAttribute('aria-pressed', 'true')
+  await expect(page.locator('#route-info .route-pref[data-pref="shortest"]')).toHaveAttribute('aria-pressed', 'false')
+})
+
+test('the route preference is remembered across a reload', async ({ page }) => {
+  await open(page)
+  let pref = null
+  await page.route('**/192.168.1.169:8082/**', (r) => {
+    pref = r.request().postDataJSON().preference
+    return r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(orsResponse()) })
+  })
+  await page.check(check('Alpha'))
+  await page.check(check('Bravo'))
+  await expect.poll(() => hasLayer(page)).toBe(true)
+  await page.click('#route-info .route-pref[data-pref="recommended"]')
+  await expect.poll(() => page.evaluate(() => localStorage.getItem('mapper.routePref'))).toBe('recommended')
+
+  await page.reload()
+  await page.waitForFunction(() => window.mapper && window.mapper.map.loaded())
+  pref = null
+  await page.check(check('Alpha'))
+  await page.check(check('Bravo'))
+  await expect.poll(() => pref).toBe('recommended')
+})
+
 test('a route is not remembered across a reload', async ({ page }) => {
   await open(page)
   await page.route('**/192.168.1.169:8082/**', (r) =>

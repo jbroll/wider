@@ -2,9 +2,19 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 
 import {
-  ORS_BASE_URL, PROFILE, ROUTE_SOURCE_ID, ROUTE_LAYER_ID,
+  ORS_BASE_URL, PROFILE, ROUTE_SOURCE_ID, ROUTE_LAYER_ID, ROUTE_PREF_KEY, ROUTE_PREFS,
   directionsUrl, buildBody, parseRoute, applyRoute, formatDistance, formatDuration,
+  loadRoutePref, saveRoutePref,
 } from '../src/route.js'
+
+function memoryStore(initial = {}) {
+  const data = { ...initial }
+  return {
+    data,
+    getItem: (k) => (k in data ? data[k] : null),
+    setItem: (k, v) => { data[k] = String(v) },
+  }
+}
 
 function stub() {
   return {
@@ -40,9 +50,43 @@ test('buildBody orders coordinates as [lon, lat] in selection order', () => {
     { lat: 42.8090, lon: -73.9310 },
     { lat: 42.8200, lon: -73.9200 },
   ]
-  assert.deepEqual(buildBody(points), {
-    coordinates: [[-73.9396, 42.8142], [-73.9310, 42.8090], [-73.9200, 42.82]],
-  })
+  assert.deepEqual(buildBody(points).coordinates,
+    [[-73.9396, 42.8142], [-73.9310, 42.8090], [-73.9200, 42.82]])
+})
+
+const TWO = [{ lat: 42.80, lon: -73.93 }, { lat: 42.81, lon: -73.94 }]
+
+test('the route preferences are Direct (shortest) then Quiet (recommended)', () => {
+  assert.deepEqual(ROUTE_PREFS.map((p) => [p.id, p.name]),
+    [['shortest', 'Direct'], ['recommended', 'Quiet']])
+})
+
+test('buildBody sends the given preference', () => {
+  assert.equal(buildBody(TWO, 'shortest').preference, 'shortest')
+  assert.equal(buildBody(TWO, 'recommended').preference, 'recommended')
+})
+
+test('buildBody falls back to shortest for a missing or unknown preference', () => {
+  assert.equal(buildBody(TWO).preference, 'shortest')
+  assert.equal(buildBody(TWO, 'fastest').preference, 'shortest')
+})
+
+test('loadRoutePref returns the saved preference', () => {
+  assert.equal(loadRoutePref(memoryStore({ [ROUTE_PREF_KEY]: 'recommended' })), 'recommended')
+})
+
+test('loadRoutePref falls back to shortest for a missing or unrecognised value', () => {
+  assert.equal(ROUTE_PREF_KEY, 'mapper.routePref')
+  assert.equal(loadRoutePref(memoryStore()), 'shortest')
+  assert.equal(loadRoutePref(memoryStore({ [ROUTE_PREF_KEY]: 'scenic' })), 'shortest')
+})
+
+test('saveRoutePref stores a valid preference and ignores an invalid one', () => {
+  const s = memoryStore()
+  assert.equal(saveRoutePref(s, 'recommended'), 'recommended')
+  assert.equal(s.data[ROUTE_PREF_KEY], 'recommended')
+  assert.equal(saveRoutePref(s, 'scenic'), null)
+  assert.equal(s.data[ROUTE_PREF_KEY], 'recommended')
 })
 
 test('parseRoute pulls geometry, distance and duration from the ORS response', () => {

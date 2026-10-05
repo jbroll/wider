@@ -123,6 +123,13 @@ path. Below the panel, the distance (metres under 1 km, then kilometres to one
 decimal) and walking time (whole minutes, at least 1) show with a
 **Clear route** button.
 
+Between the summary and **Clear route**, two buttons pick how the route is
+chosen. **Direct** asks the routing service for the shortest walk, main roads
+included. **Quiet** asks for its recommended walk, which favors side streets
+and footpaths over busier roads and can be noticeably longer. Clicking either
+redraws the current route. The choice is saved to `localStorage` under
+`mapper.routePref`; a missing or unrecognised value falls back to Direct.
+
 Unchecking down to fewer than two places or clicking **Clear route** clears
 the route. Deleting a checked place re-routes through whatever remains
 checked, and clears only if fewer than two are left.
