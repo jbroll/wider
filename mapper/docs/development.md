@@ -5,7 +5,8 @@
 ```
 mapper/
   mapper            launcher script
-  serve.js          serves dist/index.html on a loopback port
+  serve.js          serves dist/index.html on a loopback port, proxies /ors/
+  deploy.conf       deploy.sh settings for apps.rkroll.com (see install.md)
   build.js          bundles src/ into dist/index.html
   src/              source, below
   test/             node --test unit tests and Playwright specs
@@ -63,13 +64,16 @@ with small stub styles, one per style id. Its `startDomHarness` serves
 `test/dom-harness.jsx`, a bundle of `colors.jsx` alone, so `toHex` can be
 called directly on colors no loaded style can carry.
 
-The routing specs in `test/route.spec.js` answer requests to the
-OpenRouteService address with `page.route` stubs, so they run off the local
-network too.
+The routing specs in `test/route.spec.js` answer `ors/v2/directions/` requests
+with `page.route` stubs, so they never reach a routing service. Two of them
+open the page with and without `?token=` and check what the request carries.
+`test/serve.test.js` starts `serve.js` with `MAPPER_ORS_URL` pointing at a fake
+ORS on loopback to cover the proxy.
 
 No linter is configured.
 
 ## Release
 
 None. The package is private (`"private": true`, version `0.1.0`) and runs
-from the checkout.
+from the checkout. The web copy at `apps.rkroll.com/mapper/` is deployed with
+deploy.sh; see [install.md](install.md#deploying-to-appsrkrollcom).

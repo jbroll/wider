@@ -14,8 +14,8 @@ Network services, both outside this project:
 
 - Map styles and vector tiles from `https://tiles.openfreemap.org/styles/<id>`.
   No API key.
-- Walking routes from a self-hosted OpenRouteService at
-  `http://192.168.1.169:8082/ors`. Without it everything but routing works.
+- Walking routes from a self-hosted OpenRouteService, which `serve.js` reaches
+  at `http://192.168.1.169:8082/ors`. Without it everything but routing works.
 
 ## Install
 
@@ -40,9 +40,43 @@ keeps serving the old build until `npm run build` runs.
 
 ## Routing service
 
-The OpenRouteService address and the `foot-walking` profile are constants
-(`ORS_BASE_URL`, `PROFILE`) at the top of `src/route.js`. To use a different
-server, change `ORS_BASE_URL` and rebuild.
+The page sends routing requests to `ors/` relative to its own address, and
+`serve.js` proxies `/ors/` to `http://192.168.1.169:8082/ors`. To use a
+different server, set `MAPPER_ORS_URL` to its `http://` base URL, ending in
+`/ors`, before running `./mapper`. No rebuild is needed. The `foot-walking`
+profile is the `PROFILE` constant in `src/route.js`.
+
+## Deploying to apps.rkroll.com
+
+`deploy.conf` deploys mapper with
+[deploy.sh](https://github.com/jbroll/deploy.sh) as a path mount on the
+`apps.rkroll.com` vhost. The vhost is the root project, deployed from
+`~/src/rkroll.com/apps`. It must have been deployed by a deploy.sh that
+includes mounted apps in the vhost; mapper's configure stage warns when it
+was not.
+
+```bash
+npm install                            # the build stage runs npm run build here
+../../deploy.sh/deploy.sh init .       # first deploy
+../../deploy.sh/deploy.sh update .     # later: rebuild and resync
+```
+
+from `mapper/`, with deploy.sh checked out beside this repo. `deploy.conf`
+uses `APACHE_MOUNT_PATH` and `APACHE_PROXY_URLS`, which exist only on
+deploy.sh's `apache-mount-path` branch until it merges.
+
+What the deploy sets up:
+
+- `dist/index.html` synced to `/var/www/mapper` and served at
+  `https://apps.rkroll.com/mapper/`. Only `dist/` is copied: the apache
+  module's configure stage syncs `dist/` when it exists, never the sources or
+  `node_modules`.
+- `/mapper/ors` proxied to `https://symon.rkroll.com:8443/routing/ors`.
+- Token auth over the whole `/mapper` mount, page and proxy alike. A request
+  passes with `?token=<32 hex>` in its query string, and there are no cookies,
+  so the page forwards its own token on each routing request.
+- No certificate of its own: `letsencrypt` is left out of `DEPLOY_TYPES`
+  because the `apps.rkroll.com` vhost owns the cert.
 
 ## Desktop menu and autostart
 

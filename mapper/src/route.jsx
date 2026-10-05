@@ -10,7 +10,7 @@ import {
 
 const SAVE_DELAY = 300
 
-const UNREACHABLE = 'Could not reach the routing service. Is mapper on the local network?'
+const UNREACHABLE = 'Could not reach the routing service.'
 const NOT_ROUTABLE = 'No walking route there; routing only covers the Schenectady area.'
 
 export const route = signal(null)
@@ -32,7 +32,7 @@ async function run(ids, pref) {
   }
   let json
   try {
-    const res = await fetch(directionsUrl(), {
+    const res = await fetch(directionsUrl(window.location.search), {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(buildBody(points, pref)),

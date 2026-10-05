@@ -265,8 +265,8 @@ so `backup.jsx` leaves it in `sessionStorage` under `mapper.importNotice` and
 
 ## Routing
 
-`route.js` is pure, like `colors.js`: it holds the ORS base URL and profile,
-builds the request body, parses the response, and `applyRoute` appends a
+`route.js` is pure, like `colors.js`: it holds the ORS path and profile,
+builds the request URL and body, parses the response, and `applyRoute` appends a
 GeoJSON source and a `line` layer for the route - the third transform in the
 chain, `applyRoute(applyColors(applyTweaks(style, tweaks), colors), route)`,
 composed identically at both places a style is applied (`main.jsx` at
@@ -281,6 +281,28 @@ element in line-width units. A `circle` layer on the route geometry was
 rejected - circles land on the LineString's vertices, which ORS spaces by
 road geometry rather than evenly, so the dots would cluster at corners and
 thin out along straights.
+
+The page never names the ORS host, because the deployed page is HTTPS and off
+the home network, where a fetch to `http://192.168.1.169` is both blocked as
+mixed content and unreachable. `ORS_BASE_URL` is the relative path `ors`, so a
+request resolves under whatever path served the page, and that server proxies
+it:
+
+| Served from | Request goes to | Proxied to |
+|---|---|---|
+| `serve.js`, `http://127.0.0.1:8737/` | `/ors/v2/...` | `http://192.168.1.169:8082/ors/v2/...` |
+| Apache, `https://apps.rkroll.com/mapper/` | `/mapper/ors/v2/...` | `https://symon.rkroll.com:8443/routing/ors/v2/...` |
+
+The request is same-origin, so ORS needs no CORS headers. `serve.js` passes any method
+under `/ors/` through with the body streamed and the status and headers sent
+back, and answers 502 when ORS cannot be reached. `MAPPER_ORS_URL` overrides
+its target, which is how `test/serve.test.js` points it at a fake.
+
+The Apache mount checks a `token` query parameter on every request, including
+the proxied ones, and sets no cookie. `directionsUrl` therefore takes the
+page's query string (`route.jsx` passes `window.location.search`, keeping
+`route.js` pure) and appends `?token=` when the page was opened with one. No
+other page parameter is forwarded. ORS ignores the extra parameter.
 
 Every request sends an explicit ORS `preference`, defaulting to `shortest`.
 ORS's own default, `recommended`, weights `foot-walking` away from tertiary and
@@ -338,8 +360,12 @@ drawn.
 
 ## Limits
 
-- The ORS base URL and profile are constants in `src/route.js`, so routing
-  works only on one local network and only for walking.
+- Routing is walking only: `PROFILE` in `src/route.js` is fixed at
+  `foot-walking`. The ORS server behind the proxy covers the Schenectady area
+  only.
+- From the desktop launcher, routing works only on the network that reaches
+  `192.168.1.169`, unless `MAPPER_ORS_URL` points `serve.js` elsewhere. The
+  copy at `apps.rkroll.com` routes from anywhere.
 - Only one instance runs at a time: the fixed port and Chromium's profile
   singleton both assume it (see `install.md`).
 - Text, Buildings and the four label colors are one setting shared by all

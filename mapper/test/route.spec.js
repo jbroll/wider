@@ -7,6 +7,9 @@ let server
 test.beforeAll(async () => { server = await startPage() })
 test.afterAll(async () => { await server.close() })
 
+const ORS = '**/ors/v2/directions/**'
+const TOKEN = '0123456789abcdef0123456789abcdef'
+
 const GEOMETRY = { type: 'LineString', coordinates: [[-73.94, 42.81], [-73.93, 42.81], [-73.92, 42.82]] }
 
 function orsResponse(distance = 1234, duration = 900) {
@@ -26,9 +29,9 @@ const PLACES = [
   { id: 'c', name: 'Charlie', lat: 42.8200, lon: -73.9200, zoom: 12, bearing: 0 },
 ]
 
-async function open(page, places = PLACES) {
+async function open(page, places = PLACES, search = '') {
   await routeStyle(page)
-  await page.goto(server.url)
+  await page.goto(server.url + search)
   await expect(page.locator('#map canvas')).toBeVisible()
   await page.waitForFunction(() => window.mapper && window.mapper.map.loaded())
   await page.evaluate((p) => localStorage.setItem('mapper.places', JSON.stringify(p)), places)
@@ -43,7 +46,7 @@ const styleName = (page) => page.evaluate(() => window.mapper.map.getStyle().nam
 
 test('selecting two places auto-draws the route with no button click', async ({ page }) => {
   await open(page)
-  await page.route('**/192.168.1.169:8082/**', (r) =>
+  await page.route(ORS, (r) =>
     r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(orsResponse()) }))
   await page.check(check('Alpha'))
   await page.check(check('Bravo'))
@@ -51,9 +54,33 @@ test('selecting two places auto-draws the route with no button click', async ({ 
   await expect(page.locator('#route-summary')).toHaveText('1.2 km · 15 min')
 })
 
+test('the directions request goes to ors/ under the page path with no query', async ({ page }) => {
+  await open(page)
+  const requested = page.waitForRequest(ORS)
+  await page.route(ORS, (r) =>
+    r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(orsResponse()) }))
+  await page.check(check('Alpha'))
+  await page.check(check('Bravo'))
+  const url = new URL((await requested).url())
+  expect(url.origin + url.pathname).toBe(new URL('ors/v2/directions/foot-walking/geojson', server.url).href)
+  expect(url.search).toBe('')
+})
+
+test('the page token is forwarded on the directions request, and nothing else is', async ({ page }) => {
+  await open(page, PLACES, `?lang=fr&token=${TOKEN}&x=1`)
+  const requested = page.waitForRequest(ORS)
+  await page.route(ORS, (r) =>
+    r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(orsResponse()) }))
+  await page.check(check('Alpha'))
+  await page.check(check('Bravo'))
+  const url = new URL((await requested).url())
+  expect(url.search).toBe('?token=' + TOKEN)
+  await expect.poll(() => hasLayer(page)).toBe(true)
+})
+
 test('the route layer is drawn dotted and blue', async ({ page }) => {
   await open(page)
-  await page.route('**/192.168.1.169:8082/**', (r) =>
+  await page.route(ORS, (r) =>
     r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(orsResponse()) }))
   await page.check(check('Alpha'))
   await page.check(check('Bravo'))
@@ -68,8 +95,8 @@ test('the route layer is drawn dotted and blue', async ({ page }) => {
 
 test('list order, not selection order, sets the coordinate order sent to ORS', async ({ page }) => {
   await open(page)
-  const requested = page.waitForRequest('**/192.168.1.169:8082/**')
-  await page.route('**/192.168.1.169:8082/**', (r) =>
+  const requested = page.waitForRequest(ORS)
+  await page.route(ORS, (r) =>
     r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(orsResponse()) }))
   // Ticked out of list order (Alpha, Bravo, Charlie): if the request followed
   // tick order it would read Charlie, Alpha, Bravo instead.
@@ -90,7 +117,7 @@ test('list order, not selection order, sets the coordinate order sent to ORS', a
 
 test('the order badges show each row its position in list order, not tick order', async ({ page }) => {
   await open(page)
-  await page.route('**/192.168.1.169:8082/**', (r) =>
+  await page.route(ORS, (r) =>
     r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(orsResponse()) }))
   await page.check(check('Bravo'))
   await page.check(check('Alpha'))
@@ -100,14 +127,14 @@ test('the order badges show each row its position in list order, not tick order'
 
 test('reordering rows changes the coordinate order sent to ORS', async ({ page }) => {
   await open(page)
-  await page.route('**/192.168.1.169:8082/**', (r) =>
+  await page.route(ORS, (r) =>
     r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(orsResponse()) }))
   await page.check(check('Alpha'))
   await page.check(check('Bravo'))
   await page.check(check('Charlie'))
   await expect.poll(() => hasLayer(page)).toBe(true)
 
-  const requested = page.waitForRequest('**/192.168.1.169:8082/**')
+  const requested = page.waitForRequest(ORS)
   await page.locator('#places-list li:has(.place-name:text-is("Charlie"))')
     .dragTo(page.locator('#places-list li:has(.place-name:text-is("Alpha"))'))
   const req = await requested
@@ -123,14 +150,14 @@ test('reordering rows changes the coordinate order sent to ORS', async ({ page }
 
 test('dragging a place to the end of the list makes it the last waypoint sent to ORS', async ({ page }) => {
   await open(page)
-  await page.route('**/192.168.1.169:8082/**', (r) =>
+  await page.route(ORS, (r) =>
     r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(orsResponse()) }))
   await page.check(check('Alpha'))
   await page.check(check('Bravo'))
   await page.check(check('Charlie'))
   await expect.poll(() => hasLayer(page)).toBe(true)
 
-  const requested = page.waitForRequest('**/192.168.1.169:8082/**')
+  const requested = page.waitForRequest(ORS)
   await page.locator('#places-list li:has(.place-name:text-is("Alpha"))')
     .dragTo(page.locator('#places-list .place-dropzone'))
   const req = await requested
@@ -146,7 +173,7 @@ test('dragging a place to the end of the list makes it the last waypoint sent to
 
 test('deselecting down to one place clears the route', async ({ page }) => {
   await open(page)
-  await page.route('**/192.168.1.169:8082/**', (r) =>
+  await page.route(ORS, (r) =>
     r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(orsResponse()) }))
   await page.check(check('Alpha'))
   await page.check(check('Bravo'))
@@ -158,7 +185,7 @@ test('deselecting down to one place clears the route', async ({ page }) => {
 
 test('the Clear route button empties the selection and removes the line', async ({ page }) => {
   await open(page)
-  await page.route('**/192.168.1.169:8082/**', (r) =>
+  await page.route(ORS, (r) =>
     r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(orsResponse()) }))
   await page.check(check('Alpha'))
   await page.check(check('Bravo'))
@@ -172,7 +199,7 @@ test('the Clear route button empties the selection and removes the line', async 
 test('deleting a place that is in the route re-routes through what remains', async ({ page }) => {
   await open(page)
   let lastBody = null
-  await page.route('**/192.168.1.169:8082/**', (r) => {
+  await page.route(ORS, (r) => {
     lastBody = r.request().postDataJSON()
     return r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(orsResponse()) })
   })
@@ -188,7 +215,7 @@ test('deleting a place that is in the route re-routes through what remains', asy
 
 test('the route survives a style switch, a stepper move and a color commit', async ({ page }) => {
   await open(page)
-  await page.route('**/192.168.1.169:8082/**', (r) =>
+  await page.route(ORS, (r) =>
     r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(orsResponse()) }))
   await page.check(check('Alpha'))
   await page.check(check('Bravo'))
@@ -207,7 +234,7 @@ test('the route survives a style switch, a stepper move and a color commit', asy
 
 test('a not-routable response shows its own toast', async ({ page }) => {
   await open(page)
-  await page.route('**/192.168.1.169:8082/**', (r) => r.fulfill({
+  await page.route(ORS, (r) => r.fulfill({
     status: 404,
     contentType: 'application/json',
     body: JSON.stringify({ error: { code: 2010, message: 'Could not find routable point.' } }),
@@ -220,17 +247,17 @@ test('a not-routable response shows its own toast', async ({ page }) => {
 
 test('an unreachable service shows its own toast, distinct from not-routable', async ({ page }) => {
   await open(page)
-  await page.route('**/192.168.1.169:8082/**', (r) => r.abort('connectionrefused'))
+  await page.route(ORS, (r) => r.abort('connectionrefused'))
   await page.check(check('Alpha'))
   await page.check(check('Bravo'))
-  await expect(page.locator('#toast')).toHaveText(/local network/)
+  await expect(page.locator('#toast')).toHaveText('Could not reach the routing service.')
   await expect.poll(() => hasLayer(page)).toBe(false)
 })
 
 test('Direct is the default and Quiet re-fetches with the recommended preference', async ({ page }) => {
   await open(page)
   const prefs = []
-  await page.route('**/192.168.1.169:8082/**', (r) => {
+  await page.route(ORS, (r) => {
     prefs.push(r.request().postDataJSON().preference)
     return r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(orsResponse()) })
   })
@@ -248,7 +275,7 @@ test('Direct is the default and Quiet re-fetches with the recommended preference
 test('the route preference is remembered across a reload', async ({ page }) => {
   await open(page)
   let pref = null
-  await page.route('**/192.168.1.169:8082/**', (r) => {
+  await page.route(ORS, (r) => {
     pref = r.request().postDataJSON().preference
     return r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(orsResponse()) })
   })
@@ -269,8 +296,8 @@ test('the route preference is remembered across a reload', async ({ page }) => {
 test('a hidden place is still a waypoint', async ({ page }) => {
   await open(page, [{ ...PLACES[0], hidden: true }, PLACES[1]])
   await expect(page.locator('.place-marker')).toHaveCount(1)
-  const requested = page.waitForRequest('**/192.168.1.169:8082/**')
-  await page.route('**/192.168.1.169:8082/**', (r) =>
+  const requested = page.waitForRequest(ORS)
+  await page.route(ORS, (r) =>
     r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(orsResponse()) }))
   await page.check(check('Alpha'))
   await page.check(check('Bravo'))
@@ -280,7 +307,7 @@ test('a hidden place is still a waypoint', async ({ page }) => {
 
 test('a route is not remembered across a reload', async ({ page }) => {
   await open(page)
-  await page.route('**/192.168.1.169:8082/**', (r) =>
+  await page.route(ORS, (r) =>
     r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(orsResponse()) }))
   await page.check(check('Alpha'))
   await page.check(check('Bravo'))

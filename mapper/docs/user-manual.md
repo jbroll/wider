@@ -12,6 +12,23 @@ window stops the server. Set `MAPPER_PORT` to use another port; if the port is
 taken, the launcher exits with an error and opens no window. Only one instance
 runs at a time (see [install.md](install.md#port)).
 
+## Using mapper from apps.rkroll.com
+
+mapper is also served at `https://apps.rkroll.com/mapper/`, in any browser and
+from any network. Open it with the shared link, which carries an access token:
+
+```
+https://apps.rkroll.com/mapper/?token=<32 hex digits>
+```
+
+Without a valid token the server refuses the page. Keep the `?token=` part when
+bookmarking. mapper sends the same token with every routing request, so
+routing works there too.
+
+The web copy keeps its own places and settings, separate from the desktop
+app's, because the browser stores them per address. Use
+[Export and import](#export-and-import) to move them between the two.
+
 ## Navigation
 
 - **Pan**: left-drag.
@@ -174,13 +191,13 @@ Unchecking down to fewer than two places or clicking **Clear route** clears
 the route. Deleting a checked place re-routes through whatever remains
 checked, and clears only if fewer than two are left.
 
-Routing is walking only and covers the Schenectady, New York area only; it
-needs a self-hosted routing service on the local network, so it does not work
-away from that network.
+Routing is walking only and covers the Schenectady, New York area only. It
+uses a self-hosted routing service. The desktop app reaches it only from the
+home network; the copy at `apps.rkroll.com` reaches it from anywhere.
 
 | Condition | Message |
 |---|---|
-| Service unreachable, or any error but 404 | Could not reach the routing service. Is mapper on the local network? |
+| Service unreachable, or any error but 404 | Could not reach the routing service. |
 | Service returns 404 (points outside its area) | No walking route there; routing only covers the Schenectady area. |
 
 The route is not saved: a reload starts with nothing checked and no route

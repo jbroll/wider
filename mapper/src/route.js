@@ -1,4 +1,6 @@
-export const ORS_BASE_URL = 'http://192.168.1.169:8082/ors'
+// Relative, so it resolves under whatever path serves the page: /ors from
+// serve.js, /mapper/ors behind Apache. Both proxy it to the ORS server.
+export const ORS_BASE_URL = 'ors'
 export const PROFILE = 'foot-walking'
 
 export const ROUTE_SOURCE_ID = 'mapper-route'
@@ -29,8 +31,12 @@ export function saveRoutePref(store, id) {
   return clean
 }
 
-export function directionsUrl() {
-  return ORS_BASE_URL + '/v2/directions/' + PROFILE + '/geojson'
+// The deployed mount checks a token query parameter on every request and sets
+// no cookie, so the token the page was opened with has to ride along.
+export function directionsUrl(search = '') {
+  const url = ORS_BASE_URL + '/v2/directions/' + PROFILE + '/geojson'
+  const token = new URLSearchParams(search).get('token')
+  return token ? url + '?' + new URLSearchParams({ token }) : url
 }
 
 // ORS wants [lon, lat] pairs in the order the route should visit them.

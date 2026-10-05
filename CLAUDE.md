@@ -72,9 +72,12 @@ Quirks that bite:
   pure transform chain in `src/styles.jsx` instead.
 - A new Playwright spec must be added to `testMatch` in
   `playwright.config.js` or it silently never runs.
-- The routing specs stub the OpenRouteService address hardcoded in
-  `src/route.js` with `page.route`, and `test/pw.js` aborts every other
-  non-loopback request, so tests never reach a real network service.
+- Routing requests go to the relative path `ors/`, which `serve.js` (locally)
+  or Apache (at `apps.rkroll.com/mapper/`) proxies to ORS. The deployed page
+  must forward its `?token=` on every request; `directionsUrl` does that.
+- The routing specs stub `ors/v2/directions/` with `page.route`, and
+  `test/pw.js` aborts every non-loopback request, so tests never reach a real
+  network service.
 - Port 8737 is fixed on purpose: `localStorage` is origin-keyed, and every
   saved setting depends on the origin being stable across launches. Only one
   instance runs at a time.

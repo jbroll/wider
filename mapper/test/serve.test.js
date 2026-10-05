@@ -7,6 +7,7 @@ import { fileURLToPath } from 'node:url'
 import net from 'node:net'
 import os from 'node:os'
 import fs from 'node:fs'
+import http from 'node:http'
 
 const HERE = path.dirname(fileURLToPath(import.meta.url))
 const ROOT = path.join(HERE, '..')
@@ -22,11 +23,11 @@ function freePort() {
   })
 }
 
-async function start() {
+async function start(extraEnv = {}) {
   execFileSync('node', [path.join(ROOT, 'build.js')], { stdio: 'ignore' })
   // A fixed test port, not the app default, so these tests don't collide with a
   // mapper instance the developer already has running.
-  const env = { ...process.env, MAPPER_PORT: String(await freePort()) }
+  const env = { ...process.env, MAPPER_PORT: String(await freePort()), ...extraEnv }
   const child = spawn('node', [path.join(ROOT, 'serve.js')], { stdio: ['ignore', 'pipe', 'inherit'], env })
   let out = ''
   for await (const chunk of child.stdout) {
@@ -60,6 +61,70 @@ test('the server answers 404 off the root path', async () => {
   } finally {
     child.kill()
     await once(child, 'exit')
+  }
+})
+
+async function fakeOrs() {
+  const seen = []
+  const server = http.createServer(async (req, res) => {
+    let body = ''
+    for await (const chunk of req) body += chunk
+    seen.push({ method: req.method, url: req.url, type: req.headers['content-type'], body })
+    res.writeHead(201, { 'Content-Type': 'application/geo+json', 'X-Ors': 'yes' })
+    res.end('{"type":"FeatureCollection","features":[]}')
+  })
+  await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve))
+  return { seen, url: `http://127.0.0.1:${server.address().port}/ors`, close: () => new Promise((r) => server.close(r)) }
+}
+
+test('the server proxies /ors/ to the routing service with method, query and body', async () => {
+  const ors = await fakeOrs()
+  const { child, url } = await start({ MAPPER_ORS_URL: ors.url })
+  try {
+    const res = await fetch(url + '/ors/v2/directions/foot-walking/geojson?token=abc', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: '{"coordinates":[[1,2],[3,4]]}',
+    })
+    assert.equal(res.status, 201)
+    assert.equal(res.headers.get('content-type'), 'application/geo+json')
+    assert.equal(res.headers.get('x-ors'), 'yes')
+    assert.equal(await res.text(), '{"type":"FeatureCollection","features":[]}')
+    assert.deepEqual(ors.seen, [{
+      method: 'POST',
+      url: '/ors/v2/directions/foot-walking/geojson?token=abc',
+      type: 'application/json',
+      body: '{"coordinates":[[1,2],[3,4]]}',
+    }])
+  } finally {
+    child.kill()
+    await once(child, 'exit')
+    await ors.close()
+  }
+})
+
+test('the server answers 502 when the routing service is down', async () => {
+  const { child, url } = await start({ MAPPER_ORS_URL: `http://127.0.0.1:${await freePort()}/ors` })
+  try {
+    const res = await fetch(url + '/ors/v2/directions/foot-walking/geojson', { method: 'POST', body: '{}' })
+    assert.equal(res.status, 502)
+  } finally {
+    child.kill()
+    await once(child, 'exit')
+  }
+})
+
+test('the server proxies only paths under /ors/', async () => {
+  const ors = await fakeOrs()
+  const { child, url } = await start({ MAPPER_ORS_URL: ors.url })
+  try {
+    assert.equal((await fetch(url + '/ors')).status, 404)
+    assert.equal((await fetch(url + '/orsx/v2')).status, 404)
+    assert.deepEqual(ors.seen, [])
+  } finally {
+    child.kill()
+    await once(child, 'exit')
+    await ors.close()
   }
 })
 

@@ -6,7 +6,30 @@ import { fileURLToPath } from 'node:url'
 const HERE = dirname(fileURLToPath(import.meta.url))
 const html = readFileSync(join(HERE, 'dist', 'index.html'))
 
+const ORS_URL = process.env.MAPPER_ORS_URL || 'http://192.168.1.169:8082/ors'
+
+function proxyOrs(req, res) {
+  const headers = { ...req.headers }
+  delete headers.host
+  const upstream = http.request(ORS_URL + req.url.slice('/ors'.length), { method: req.method, headers }, (up) => {
+    res.writeHead(up.statusCode, up.headers)
+    up.pipe(res)
+  })
+  upstream.on('error', (err) => {
+    if (res.headersSent) {
+      res.destroy(err)
+      return
+    }
+    res.writeHead(502, { 'Content-Type': 'text/plain' }).end('routing service unreachable: ' + err.message)
+  })
+  req.pipe(upstream)
+}
+
 const server = http.createServer((req, res) => {
+  if (req.url.startsWith('/ors/')) {
+    proxyOrs(req, res)
+    return
+  }
   if (req.url.split('?')[0] !== '/') {
     res.writeHead(404).end('not found')
     return

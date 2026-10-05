@@ -38,10 +38,41 @@ const ORS_RESPONSE = {
   }],
 }
 
-test('the base URL and profile are as investigated', () => {
-  assert.equal(ORS_BASE_URL, 'http://192.168.1.169:8082/ors')
+const DIRECTIONS = 'ors/v2/directions/foot-walking/geojson'
+const TOKEN = '0123456789abcdef0123456789abcdef'
+
+test('the base URL is relative to the page and the profile is walking', () => {
+  assert.equal(ORS_BASE_URL, 'ors')
   assert.equal(PROFILE, 'foot-walking')
-  assert.equal(directionsUrl(), 'http://192.168.1.169:8082/ors/v2/directions/foot-walking/geojson')
+})
+
+test('directionsUrl carries no query when the page has none', () => {
+  assert.equal(directionsUrl(), DIRECTIONS)
+  assert.equal(directionsUrl(''), DIRECTIONS)
+})
+
+test('directionsUrl forwards the page token', () => {
+  assert.equal(directionsUrl('?token=' + TOKEN), DIRECTIONS + '?token=' + TOKEN)
+})
+
+test('directionsUrl forwards only the token, not other page parameters', () => {
+  assert.equal(directionsUrl('?a=1&token=' + TOKEN + '&b=2'), DIRECTIONS + '?token=' + TOKEN)
+  assert.equal(directionsUrl('?a=1&b=2'), DIRECTIONS)
+})
+
+test('directionsUrl drops an empty token', () => {
+  assert.equal(directionsUrl('?token='), DIRECTIONS)
+})
+
+test('directionsUrl encodes the token', () => {
+  assert.equal(directionsUrl('?token=a%26b'), DIRECTIONS + '?token=a%26b')
+})
+
+test('directionsUrl resolves under the page path, local or mounted', () => {
+  assert.equal(new URL(directionsUrl(), 'http://127.0.0.1:8737/').href,
+    'http://127.0.0.1:8737/' + DIRECTIONS)
+  assert.equal(new URL(directionsUrl('?token=' + TOKEN), 'https://apps.rkroll.com/mapper/?token=' + TOKEN).href,
+    'https://apps.rkroll.com/mapper/' + DIRECTIONS + '?token=' + TOKEN)
 })
 
 test('buildBody orders coordinates as [lon, lat] in selection order', () => {

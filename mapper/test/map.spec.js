@@ -289,7 +289,7 @@ test('dragging a marker moves the place, persists it, and refetches the route th
   await page.check('#places-list li:has(.place-name:text-is("Lyon")) .place-check')
   let requestCount = 0
   let lastBody = null
-  await page.route('**/192.168.1.169:8082/**', (r) => {
+  await page.route('**/ors/v2/directions/**', (r) => {
     requestCount += 1
     lastBody = r.request().postDataJSON()
     return r.fulfill({
