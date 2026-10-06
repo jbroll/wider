@@ -46,18 +46,19 @@ over the continental US, bearing 0, pitch 0.
 
 ## Map style
 
-The button group below the navigation controls at the top right picks the
-map style: Liberty, Bright, Positron, Dark, or Fiord. The current one is
-marked. The choice is saved to `localStorage` under `mapper.style` and is
-restored on the next launch; a missing or unrecognised value falls back to
-Liberty.
+The **Style** dropdown below the navigation controls at the top right picks
+the map style: Liberty, Bright, Positron, Dark, or Fiord. It shows the style
+currently drawn. The choice is saved to `localStorage` under `mapper.style`
+and is restored on the next launch; a missing or unrecognised value falls back
+to Liberty.
 
 Switching fetches the new style before applying it, so a style that will
-not load leaves the map as it is and shows "Could not load the `<Name>` style."
-at the bottom of the window. The centre, zoom, bearing, saved places, the
-current route and a half-typed pin all survive a switch.
+not load leaves the map as it is, puts the dropdown back on the style still
+drawn, and shows "Could not load the `<Name>` style." at the bottom of the
+window. The centre, zoom, bearing, saved places, the current route and a
+half-typed pin all survive a switch.
 
-Below the style buttons, two steppers adjust how the chosen style draws. The
+Below the style dropdown, two steppers adjust how the chosen style draws. The
 `−` button greys out at the bottom of each range, and `+` greys out only on
 Buildings, at Off.
 
@@ -264,5 +265,5 @@ If the map style fails to load at startup, or does not answer within 15
 seconds, the map area shows "This window cannot draw the map: the map style
 failed to load." A single failed tile during panning or zooming does not
 trigger this; the map keeps working. A style that fails to fetch when picked
-from the style buttons shows the short message described under
+from the style dropdown shows the short message described under
 [Map style](#map-style) instead.

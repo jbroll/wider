@@ -130,18 +130,24 @@ result, the same `commit` every other places edit uses.
 and store-argument-taking like `view.js` and `places.js`. `src/styles.jsx`
 is a MapLibre custom control: MapLibre decides where it sits in the
 `top-right` stack and gives it `.maplibregl-ctrl-group`, and Preact renders
-the buttons into the element `onAdd` returns.
+a native `<select>` of the styles into the element `onAdd` returns.
 
 A switch fetches the style JSON and only then calls `map.setStyle` with the
 parsed object. A failed fetch never reaches `setStyle`, so the running map
-stays up and the stored id and the marked button stay on the style that is
-actually drawn. The switch does not count as done at `setStyle` either: it
+stays up and the stored id stays on the style that is actually drawn. The
+select is bound to the drawn style, but the browser moves it to the pick
+first, and a failed switch changes nothing that would re-render it, so the
+change handler puts it back once the switch settles. It skips that when a
+later pick has started, so an earlier failure cannot reset a pick still in
+flight.
+
+The switch does not count as done at `setStyle` either: it
 waits for MapLibre's `styledata` event. That event is not a load
 confirmation - it is the "style changed" tick MapLibre fires once
 `Style.setState` accepts the body, on the next render frame. What the wait
 actually buys is narrower: a style body MapLibre rejects as invalid never
-fires styledata, so it never gets persisted and never moves the marked
-button.
+fires styledata, so it never gets persisted and never becomes the select's
+bound value.
 
 Startup no longer passes MapLibre a style URL. `main.jsx` fetches the style
 JSON itself, runs it through `applyTweaks`, and constructs the map from the

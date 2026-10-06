@@ -205,27 +205,31 @@ html, body {
   background: rgba(0, 0, 0, 0.05);
 }
 
-#styles .style-button {
-  display: block;
-  width: auto;
-  min-width: 5.5rem;
-  height: auto;
-  padding: 4px 8px;
-  border: 0;
-  background: none;
+#styles .style-row {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 8px 2px;
+  color: #111;
+}
+
+#styles .style-label {
+  flex: 1;
+}
+
+#style-select {
+  height: 1.4rem;
+  padding: 0 2px;
+  border: 1px solid rgba(0, 0, 0, 0.25);
+  border-radius: 3px;
+  background: #fff;
   color: #111;
   font: inherit;
-  text-align: left;
   cursor: pointer;
 }
 
-#styles .style-button:hover {
-  background: rgba(0, 0, 0, 0.07);
-}
-
-#styles .style-button.current {
-  font-weight: 600;
-  background: rgba(0, 0, 0, 0.12);
+#style-select:hover {
+  background: #f2f2f2;
 }
 
 #styles .tweak-divider {

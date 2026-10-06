@@ -222,7 +222,7 @@ test('the route survives a style switch, a stepper move and a color commit', asy
   await page.check(check('Bravo'))
   await expect.poll(() => hasLayer(page)).toBe(true)
 
-  await page.click('#styles .style-button[data-style="dark"]')
+  await page.selectOption('#style-select', 'dark')
   await expect.poll(() => styleName(page)).toBe('dark')
   await expect.poll(() => hasLayer(page)).toBe(true)
 

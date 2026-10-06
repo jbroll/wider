@@ -55,7 +55,7 @@ export function toast(text) {
 }
 
 // Fetch before setStyle: a failed request must not tear down the running map.
-// The token is bumped before the current-style early return, so clicking the
+// The token is bumped before the current-style early return, so picking the
 // current style still cancels whatever switch is in flight.
 export async function switchStyle(map, store, id) {
   const token = ++switchToken
@@ -91,19 +91,25 @@ export async function switchStyle(map, store, id) {
   })
 }
 
-function Buttons({ map, store }) {
-  return STYLES.map((s) => (
-    <button
-      key={s.id}
-      class={'style-button' + (current.value === s.id ? ' current' : '')}
-      data-style={s.id}
-      aria-pressed={current.value === s.id}
-      title={s.name + ' map style'}
-      onClick={() => switchStyle(map, store, s.id)}
-    >
-      {s.name}
-    </button>
-  ))
+let pickToken = 0
+
+function StylePicker({ map, store }) {
+  // A failed switch leaves current unchanged, so nothing re-renders the select
+  // off the pick. Only the latest pick resets it, or a failure undoes a later one.
+  const pick = async (e) => {
+    const select = e.currentTarget
+    const token = ++pickToken
+    await switchStyle(map, store, select.value)
+    if (token === pickToken) select.value = current.value
+  }
+  return (
+    <label class="style-row">
+      <span class="style-label">Style</span>
+      <select id="style-select" value={current.value} onChange={pick}>
+        {STYLES.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
+      </select>
+    </label>
+  )
 }
 
 function Toast() {
@@ -164,7 +170,7 @@ export function addStyleControl(map, store, style) {
       el.className = 'maplibregl-ctrl maplibregl-ctrl-group'
       render(
         <>
-          <Buttons map={map} store={store} />
+          <StylePicker map={map} store={store} />
           <div class="tweak-divider" />
           <Steppers onChange={change} />
           <div class="tweak-divider" />

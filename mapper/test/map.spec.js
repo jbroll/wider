@@ -242,7 +242,7 @@ test('a place marker survives a style switch', async ({ page }) => {
   })
   await page.reload()
   await page.waitForFunction(() => window.mapper && window.mapper.map.loaded())
-  await page.click('#styles .style-button[data-style="dark"]')
+  await page.selectOption('#style-select', 'dark')
   await expect.poll(() => page.evaluate(() => window.mapper.map.getStyle().name)).toBe('dark')
   await expect(page.locator('.place-marker')).toHaveCount(1)
   await expect(page.locator('.place-label')).toHaveText('Paris')
@@ -593,24 +593,24 @@ const styleName = (page) => page.evaluate(() => window.mapper.map.getStyle().nam
 // have had its chance to apply.
 const nextFrame = (page) => page.evaluate(() => new Promise((r) => requestAnimationFrame(() => r())))
 
-test('clicking a style loads it and marks its button', async ({ page }) => {
+test('picking a style loads it and the labelled select shows it', async ({ page }) => {
   await open(page)
   const asked = page.waitForRequest('**/tiles.openfreemap.org/styles/dark')
-  await page.click('#styles .style-button[data-style="dark"]')
+  await page.selectOption('#style-select', 'dark')
   await asked
   await expect.poll(() => styleName(page)).toBe('dark')
-  await expect(page.locator('#styles .style-button.current')).toHaveAttribute('data-style', 'dark')
+  await expect(page.getByLabel('Style')).toHaveValue('dark')
 })
 
 test('a reload comes back on the chosen style', async ({ page }) => {
   await open(page)
-  await page.click('#styles .style-button[data-style="fiord"]')
+  await page.selectOption('#style-select', 'fiord')
   await expect.poll(() => styleName(page)).toBe('fiord')
   await expect.poll(() => page.evaluate(() => localStorage.getItem('mapper.style'))).toBe('fiord')
   await page.reload()
   await page.waitForFunction(() => window.mapper && window.mapper.map.loaded())
   expect(await styleName(page)).toBe('fiord')
-  await expect(page.locator('#styles .style-button.current')).toHaveAttribute('data-style', 'fiord')
+  await expect(page.locator('#style-select')).toHaveValue('fiord')
 })
 
 test('the view, a saved place and a pending pin survive a switch', async ({ page }) => {
@@ -626,7 +626,7 @@ test('the view, a saved place and a pending pin survive a switch', async ({ page
   await page.mouse.click(box.width / 3, box.height / 3, { button: 'right' })
   await expect(page.locator('#pin-name')).toBeVisible()
   await page.fill('#pin-name', 'Half typed')
-  await page.click('#styles .style-button[data-style="positron"]')
+  await page.selectOption('#style-select', 'positron')
   await expect.poll(() => styleName(page)).toBe('positron')
   const [lon, lat] = await center(page)
   expect(lon).toBeCloseTo(2.3522, 2)
@@ -639,7 +639,7 @@ test('the view, a saved place and a pending pin survive a switch', async ({ page
   await expect(page.locator('.place-label')).toHaveText('Paris')
 })
 
-test('a later click wins over a slower in-flight switch', async ({ page }) => {
+test('a later pick wins over a slower in-flight switch', async ({ page }) => {
   await open(page)
   let releaseDark
   const held = new Promise((resolve) => { releaseDark = resolve })
@@ -651,19 +651,19 @@ test('a later click wins over a slower in-flight switch', async ({ page }) => {
       body: JSON.stringify(styleFor('dark')),
     })
   })
-  await page.click('#styles .style-button[data-style="dark"]')
-  await page.click('#styles .style-button[data-style="fiord"]')
+  await page.selectOption('#style-select', 'dark')
+  await page.selectOption('#style-select', 'fiord')
   await expect.poll(() => styleName(page)).toBe('fiord')
   const darkResponded = page.waitForResponse('**/tiles.openfreemap.org/styles/dark')
   releaseDark()
   await darkResponded
   await nextFrame(page)
   expect(await styleName(page)).toBe('fiord')
-  await expect(page.locator('#styles .style-button.current')).toHaveAttribute('data-style', 'fiord')
+  await expect(page.locator('#style-select')).toHaveValue('fiord')
   expect(await page.evaluate(() => localStorage.getItem('mapper.style'))).toBe('fiord')
 })
 
-test('clicking back to the current style cancels an in-flight switch', async ({ page }) => {
+test('picking the current style again cancels an in-flight switch', async ({ page }) => {
   await open(page)
   let releaseDark
   const held = new Promise((resolve) => { releaseDark = resolve })
@@ -675,27 +675,56 @@ test('clicking back to the current style cancels an in-flight switch', async ({ 
       body: JSON.stringify(styleFor('dark')),
     })
   })
-  await page.click('#styles .style-button[data-style="dark"]')
-  await page.click('#styles .style-button[data-style="liberty"]')
+  await page.selectOption('#style-select', 'dark')
+  await page.selectOption('#style-select', 'liberty')
   const darkResponded = page.waitForResponse('**/tiles.openfreemap.org/styles/dark')
   releaseDark()
   await darkResponded
   await nextFrame(page)
   expect(await styleName(page)).toBe('liberty')
-  await expect(page.locator('#styles .style-button.current')).toHaveAttribute('data-style', 'liberty')
+  await expect(page.locator('#style-select')).toHaveValue('liberty')
   expect(await page.evaluate(() => localStorage.getItem('mapper.style'))).toBe(null)
 })
 
-test('a failed style request keeps the current style and shows a toast', async ({ page }) => {
+const holdStyle = async (page, id, status) => {
+  let release
+  const held = new Promise((resolve) => { release = resolve })
+  await page.route('**/tiles.openfreemap.org/styles/' + id, async (r) => {
+    await held
+    if (status !== 200) return r.fulfill({ status })
+    return r.fulfill({ status, contentType: 'application/json', body: JSON.stringify(styleFor(id)) })
+  })
+  return release
+}
+
+test('a failed style request snaps the select back and shows a toast', async ({ page }) => {
   await open(page)
-  // Registered after routeStyle, so it wins for this one path.
-  await page.route('**/tiles.openfreemap.org/styles/dark', (r) => r.fulfill({ status: 500 }))
-  await page.click('#styles .style-button[data-style="dark"]')
+  const releaseDark = await holdStyle(page, 'dark', 500)
+  await page.selectOption('#style-select', 'dark')
+  await expect(page.locator('#style-select')).toHaveValue('dark')
+  releaseDark()
   await expect(page.locator('#toast')).toHaveText('Could not load the Dark style.')
+  await expect(page.locator('#style-select')).toHaveValue('liberty')
   expect(await styleName(page)).toBe('liberty')
-  await expect(page.locator('#styles .style-button.current')).toHaveAttribute('data-style', 'liberty')
   expect(await page.evaluate(() => localStorage.getItem('mapper.style'))).toBe(null)
   await expect(page.locator('#map')).not.toHaveText(/style failed to load/)
+})
+
+test('an earlier failed switch leaves a later pick in flight alone', async ({ page }) => {
+  await open(page)
+  const releaseDark = await holdStyle(page, 'dark', 500)
+  const releaseFiord = await holdStyle(page, 'fiord', 200)
+  await page.selectOption('#style-select', 'dark')
+  await page.selectOption('#style-select', 'fiord')
+  const darkResponded = page.waitForResponse('**/tiles.openfreemap.org/styles/dark')
+  releaseDark()
+  await darkResponded
+  await nextFrame(page)
+  await expect(page.locator('#style-select')).toHaveValue('fiord')
+  await expect(page.locator('#toast')).toBeHidden()
+  releaseFiord()
+  await expect.poll(() => styleName(page)).toBe('fiord')
+  await expect(page.locator('#style-select')).toHaveValue('fiord')
 })
 
 const textSize = (page, id) => page.evaluate(
@@ -915,7 +944,7 @@ test('switching style keeps the current tweaks applied', async ({ page }) => {
   await open(page)
   await page.click(up('text'))
   await page.click(up('buildings'))
-  await page.click('#styles .style-button[data-style="dark"]')
+  await page.selectOption('#style-select', 'dark')
   await expect.poll(() => styleName(page)).toBe('dark')
   await expect.poll(() => textSize(page, 'place-label')).toBeCloseTo(13.2, 5)
   expect(await minZoom(page, 'building')).toBe(14)
@@ -934,7 +963,7 @@ test('a stepper moved during an in-flight switch is carried by that switch', asy
       body: JSON.stringify(styleFor('dark')),
     })
   })
-  await page.click('#styles .style-button[data-style="dark"]')
+  await page.selectOption('#style-select', 'dark')
   await page.click(up('text'))
   releaseDark()
   await expect.poll(() => styleName(page)).toBe('dark')
@@ -1044,7 +1073,7 @@ test("an unset swatch shows the style's own color", async ({ page }) => {
 test('an unset swatch re-seeds when the style is switched', async ({ page }) => {
   await open(page)
   await expect(page.locator(swatch('streets'))).toHaveValue('#666666')
-  await page.click('#styles .style-button[data-style="dark"]')
+  await page.selectOption('#style-select', 'dark')
   await expect.poll(() => styleName(page)).toBe('dark')
   await expect(page.locator(swatch('streets'))).toHaveValue('#504e4e')
 })
@@ -1085,7 +1114,7 @@ test('switching style keeps the current colors applied', async ({ page }) => {
   await open(page)
   await page.locator(swatch('streets')).fill('#1a1a1a')
   await expect.poll(() => paintOf(page, 'street-label', 'text-color')).toBe('#1a1a1a')
-  await page.click('#styles .style-button[data-style="dark"]')
+  await page.selectOption('#style-select', 'dark')
   await expect.poll(() => styleName(page)).toBe('dark')
   expect(await paintOf(page, 'street-label', 'text-color')).toBe('#1a1a1a')
   await expect(page.locator(swatch('streets'))).toHaveValue('#1a1a1a')
@@ -1093,7 +1122,7 @@ test('switching style keeps the current colors applied', async ({ page }) => {
 
 test('a picker for a group absent from the style still renders, stores and clears', async ({ page }) => {
   await open(page)
-  await page.click('#styles .style-button[data-style="fiord"]')
+  await page.selectOption('#style-select', 'fiord')
   await expect.poll(() => styleName(page)).toBe('fiord')
   await expect(page.locator(swatch('pois'))).toHaveValue('#000000')
   await expect(page.locator(clearer('pois'))).toBeDisabled()
@@ -1144,7 +1173,7 @@ test('a color set during an in-flight switch is carried by that switch', async (
       body: JSON.stringify(styleFor('dark')),
     })
   })
-  await page.click('#styles .style-button[data-style="dark"]')
+  await page.selectOption('#style-select', 'dark')
   await page.locator(swatch('places')).fill('#1a1a1a')
   releaseDark()
   await expect.poll(() => styleName(page)).toBe('dark')

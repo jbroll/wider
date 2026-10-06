@@ -80,7 +80,7 @@ test('export, clear and import restores the saved data', async ({ page }) => {
   await expect(page.locator('#places-list .place-name')).toHaveText(['Alpha', 'Bravo'])
   await expect(page.locator('#places-list .place-check').nth(0)).toBeChecked()
   await expect(page.locator('#places-list .place-check').nth(1)).not.toBeChecked()
-  await expect(page.locator('#styles .style-button.current')).toHaveText('Dark')
+  await expect(page.locator('#style-select')).toHaveValue('dark')
 })
 
 test('an invalid key is skipped and named in the message after the reload', async ({ page }) => {
@@ -113,6 +113,6 @@ test('declining the confirmation changes nothing', async ({ page }) => {
   const dialog = page.waitForEvent('dialog')
   await pick(page, 'other.json', JSON.stringify({ app: 'mapper', version: 1, data: { 'mapper.style': 'fiord' } }))
   await (await dialog).dismiss()
-  await expect(page.locator('#styles .style-button.current')).toHaveText('Dark')
+  await expect(page.locator('#style-select')).toHaveValue('dark')
   expect(await storage(page)).toEqual(SAVED)
 })
