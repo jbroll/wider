@@ -22,8 +22,8 @@ https://apps.rkroll.com/mapper/?token=<32 hex digits>
 ```
 
 Without a valid token the server refuses the page. Keep the `?token=` part when
-bookmarking. mapper sends the same token with every routing request, so
-routing works there too.
+bookmarking. mapper sends the same token with every routing and search
+request, so both work there too.
 
 The web copy keeps its own places and settings, separate from the desktop
 app's, because the browser stores them per address. Use
@@ -36,6 +36,29 @@ app's, because the browser stores them per address. Use
 - **Rotate and tilt**: right-drag, or ctrl-drag.
 - **Return to north**: click the compass button in the top-right controls.
   It resets bearing to 0 and pitch to 0.
+
+## Address search
+
+The search box sits at the top-left, above the places panel. After three or
+more characters and a 300ms pause in typing, a list of up to eight matching
+addresses drops down below it. Click one, or move through the list with the
+arrow keys and press Enter, to fly the map there. Enter with nothing
+highlighted takes the first match. The zoom depends on what matched: 17 for a
+house address, 15 for a street, 12 for a town or ZIP code. The bearing is left
+as it is. Escape or a click elsewhere closes the list without moving the map.
+
+Search only moves the map. To keep the spot, right-click it to drop a pin (see
+[Saved places](#saved-places)).
+
+An empty search shows "No matches". If the geocoder cannot be reached, the
+list closes and "Could not reach the geocoder." shows at the bottom of the
+window.
+
+Search uses a self-hosted geocoder that covers US addresses only, and it
+matches best on a full address: house number, street and town, such as
+`120 State St Schenectady NY`. A bare town name, or a street and town with no
+house number, often finds nothing. The desktop app reaches the geocoder only
+from the home network; the copy at `apps.rkroll.com` reaches it from anywhere.
 
 ## View persistence
 

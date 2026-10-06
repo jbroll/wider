@@ -6,12 +6,15 @@ import { fileURLToPath } from 'node:url'
 const HERE = dirname(fileURLToPath(import.meta.url))
 const html = readFileSync(join(HERE, 'dist', 'index.html'))
 
-const ORS_URL = process.env.MAPPER_ORS_URL || 'http://192.168.1.169:8082/ors'
+const PROXIES = [
+  { prefix: '/ors', name: 'routing service', target: process.env.MAPPER_ORS_URL || 'http://192.168.1.169:8082/ors' },
+  { prefix: '/geocode', name: 'geocoder', target: process.env.MAPPER_GEOCODE_URL || 'http://192.168.1.169:4000' },
+]
 
-function proxyOrs(req, res) {
+function proxy({ prefix, name, target }, req, res) {
   const headers = { ...req.headers }
   delete headers.host
-  const upstream = http.request(ORS_URL + req.url.slice('/ors'.length), { method: req.method, headers }, (up) => {
+  const upstream = http.request(target + req.url.slice(prefix.length), { method: req.method, headers }, (up) => {
     res.writeHead(up.statusCode, up.headers)
     up.pipe(res)
   })
@@ -20,14 +23,15 @@ function proxyOrs(req, res) {
       res.destroy(err)
       return
     }
-    res.writeHead(502, { 'Content-Type': 'text/plain' }).end('routing service unreachable: ' + err.message)
+    res.writeHead(502, { 'Content-Type': 'text/plain' }).end(name + ' unreachable: ' + err.message)
   })
   req.pipe(upstream)
 }
 
 const server = http.createServer((req, res) => {
-  if (req.url.startsWith('/ors/')) {
-    proxyOrs(req, res)
+  const p = PROXIES.find((p) => req.url.startsWith(p.prefix + '/'))
+  if (p) {
+    proxy(p, req, res)
     return
   }
   if (req.url.split('?')[0] !== '/') {

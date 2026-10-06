@@ -25,6 +25,65 @@ html, body {
   z-index: 1;
 }
 
+#search-box {
+  position: relative;
+  margin-bottom: 4px;
+  min-width: 14rem;
+  max-width: 20rem;
+}
+
+#search {
+  display: block;
+  width: 100%;
+  box-sizing: border-box;
+  padding: 6px 10px;
+  border: 0;
+  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.93);
+  color: #111;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.4);
+  font: inherit;
+}
+
+/* Over the places panel rather than pushing it down. */
+#search-results {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  right: 0;
+  z-index: 2;
+  margin: 2px 0 0;
+  padding: 2px 0;
+  list-style: none;
+  max-height: 50vh;
+  overflow-y: auto;
+  background: #fff;
+  color: #111;
+  border-radius: 4px;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.4);
+}
+
+.search-result,
+.search-empty {
+  padding: 4px 10px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.search-result {
+  cursor: pointer;
+}
+
+.search-result:hover,
+.search-result[aria-selected="true"] {
+  background: rgba(0, 0, 0, 0.1);
+}
+
+.search-empty {
+  color: #777;
+}
+
 #places {
   background: rgba(255, 255, 255, 0.93);
   color: #111;

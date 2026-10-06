@@ -72,9 +72,10 @@ Quirks that bite:
   pure transform chain in `src/styles.jsx` instead.
 - A new Playwright spec must be added to `testMatch` in
   `playwright.config.js` or it silently never runs.
-- Routing requests go to the relative path `ors/`, which `serve.js` (locally)
-  or Apache (at `apps.rkroll.com/mapper/`) proxies to ORS. The deployed page
-  must forward its `?token=` on every request; `directionsUrl` does that.
+- Routing requests go to the relative path `ors/` and search requests to
+  `geocode/`, which `serve.js` (locally) or Apache (at `apps.rkroll.com/mapper/`)
+  proxies to ORS and over-coder. The deployed page must forward its `?token=`
+  on every request; `directionsUrl` and `autocompleteUrl` do that.
 - The routing specs stub `ors/v2/directions/` with `page.route`, and
   `test/pw.js` aborts every non-loopback request, so tests never reach a real
   network service.

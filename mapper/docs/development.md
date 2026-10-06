@@ -5,7 +5,7 @@
 ```
 mapper/
   mapper            launcher script
-  serve.js          serves dist/index.html on a loopback port, proxies /ors/
+  serve.js          serves dist/index.html on a loopback port, proxies /ors/ and /geocode/
   deploy.conf       deploy.sh settings for apps.rkroll.com (see install.md)
   build.js          bundles src/ into dist/index.html
   src/              source, below
@@ -19,9 +19,9 @@ argument and run under `node --test`, and browser modules that do not:
 
 ```
 pure      view.js  styles.js  tweaks.js  colors.js  pins.js  places.js  route.js
-          backup.js
+          backup.js  search.js
 browser   main.jsx  map.js  store.js  places.jsx  styles.jsx
-          tweaks.jsx  colors.jsx  pins.jsx  route.jsx  backup.jsx
+          tweaks.jsx  colors.jsx  pins.jsx  route.jsx  backup.jsx  search.jsx
 page      index.html  style.css
 ```
 
@@ -43,8 +43,8 @@ without writing to disk.
 ## Test
 
 ```bash
-node --test test/*.test.js   # unit tests: build, serve, view, styles, tweaks, colors, pins, places, route, backup
-npx playwright test          # browser specs: test/map.spec.js, test/route.spec.js, test/backup.spec.js
+node --test test/*.test.js   # unit tests: build, serve, view, styles, tweaks, colors, pins, places, route, backup, search
+npx playwright test          # browser specs: map, route, backup and search .spec.js in test/
 npm test                     # both, in that order
 ```
 
@@ -69,6 +69,11 @@ with `page.route` stubs, so they never reach a routing service. Two of them
 open the page with and without `?token=` and check what the request carries.
 `test/serve.test.js` starts `serve.js` with `MAPPER_ORS_URL` pointing at a fake
 ORS on loopback to cover the proxy.
+
+The search specs in `test/search.spec.js` stub `geocode/v1/autocomplete` the
+same way, and turn on reduced motion so MapLibre's `flyTo` jumps and the test
+reads the destination at once. `test/serve.test.js` covers the `/geocode/`
+proxy with a fake geocoder under `MAPPER_GEOCODE_URL`.
 
 No linter is configured.
 

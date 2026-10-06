@@ -31,8 +31,9 @@ that one file.
 ## UI
 
 MapLibre owns the map canvas directly (`src/map.js`), which is why `map.js`
-is a plain function rather than a component. Preact renders the places
-panel (`src/places.jsx`) and the style control and toast (`src/styles.jsx`).
+is a plain function rather than a component. Preact renders the search box
+(`src/search.jsx`) and places panel (`src/places.jsx`) into `#panel`, and the
+style control and toast (`src/styles.jsx`).
 
 The pure modules (`view.js`, `styles.js`, `tweaks.js`, `colors.js`,
 `pins.js`, `places.js`, `route.js`, `backup.js`) take a `localStorage`-shaped store as an argument
@@ -367,14 +368,50 @@ before reading `mapper.places`: it sets `route` on the places that key names,
 saves them, and removes the key. An export file carrying that key imports it
 as an unknown key, ignored.
 
+## Search
+
+`search.js` is pure like `route.js` but keeps no state: it builds the
+autocomplete URL, turns over-coder's Pelias-style FeatureCollection into
+`{label, layer, lon, lat}` entries, and picks a fly-to zoom from `layer`.
+`search.jsx` holds the input and the dropdown. Nothing is persisted.
+
+Requests follow the routing pattern exactly, for the same reasons: a relative
+`geocode` path that the serving host proxies, with the page's `?token=`
+forwarded and no other page parameter.
+
+| Served from | Request goes to | Proxied to |
+|---|---|---|
+| `serve.js`, `http://127.0.0.1:8737/` | `/geocode/v1/...` | `http://192.168.1.169:4000/v1/...` |
+| Apache, `https://apps.rkroll.com/mapper/` | `/mapper/geocode/v1/...` | `https://symon.rkroll.com:8443/geocode/v1/...` |
+
+`serve.js` keeps both proxies in one `PROXIES` table, so they share the
+streaming, header pass-through and 502 handling. `MAPPER_GEOCODE_URL`
+overrides the geocoder target.
+
+Each keystroke restarts a 300ms timer, and only the timer's expiry fetches. A
+request token, as in `route.jsx`, drops a response that a later keystroke, a
+pick or an Escape has overtaken, so a slow answer cannot reopen a closed list
+or replace newer results. The request sends the map center as
+`focus.point.lat`/`lon`; over-coder accepts it but does not rank by it yet.
+
+The search box lives in `#panel` rather than a MapLibre `top-left` control
+because `#panel` already covers that corner. The dropdown is absolutely
+positioned so it lays over the places list instead of pushing it down. Its
+`mousedown` is cancelled so a click on a result does not blur the input,
+which would close the list before the click lands.
+
 ## Limits
 
 - Routing is walking only: `PROFILE` in `src/route.js` is fixed at
   `foot-walking`. The ORS server behind the proxy covers the Schenectady area
   only.
-- From the desktop launcher, routing works only on the network that reaches
-  `192.168.1.169`, unless `MAPPER_ORS_URL` points `serve.js` elsewhere. The
-  copy at `apps.rkroll.com` routes from anywhere.
+- From the desktop launcher, routing and search work only on the network that
+  reaches `192.168.1.169`, unless `MAPPER_ORS_URL` or `MAPPER_GEOCODE_URL`
+  points `serve.js` elsewhere. The copy at `apps.rkroll.com` reaches both from
+  anywhere.
+- over-coder covers US addresses only. Its autocomplete answers reliably for
+  house number, street and town together; a bare town, or a street and town
+  with no number, usually returns nothing.
 - Only one instance runs at a time: the fixed port and Chromium's profile
   singleton both assume it (see `install.md`).
 - Text, Buildings and the four label colors are one setting shared by all

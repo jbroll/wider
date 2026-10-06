@@ -8,6 +8,7 @@ import { route, attachRoute, RouteStatus } from './route.jsx'
 import { addStyleControl } from './styles.jsx'
 import { render } from 'preact'
 import { Places, attach } from './places.jsx'
+import { Search } from './search.jsx'
 import { store } from './store.js'
 
 const NO_WEBGL = 'This window cannot draw the map: WebGL is unavailable.'
@@ -74,7 +75,7 @@ async function start() {
   attach(map)
   addStyleControl(map, store, style)
   attachRoute(map)
-  render(<><Places map={map} /><RouteStatus /></>, document.getElementById('panel'))
+  render(<><Search map={map} /><Places map={map} /><RouteStatus /></>, document.getElementById('panel'))
 
   window.mapper = { map }
 }

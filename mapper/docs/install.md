@@ -16,6 +16,9 @@ Network services, both outside this project:
   No API key.
 - Walking routes from a self-hosted OpenRouteService, which `serve.js` reaches
   at `http://192.168.1.169:8082/ors`. Without it everything but routing works.
+- Address search from the self-hosted over-coder geocoder, which `serve.js`
+  reaches at `http://192.168.1.169:4000`. Without it everything but search
+  works.
 
 ## Install
 
@@ -46,6 +49,14 @@ different server, set `MAPPER_ORS_URL` to its `http://` base URL, ending in
 `/ors`, before running `./mapper`. No rebuild is needed. The `foot-walking`
 profile is the `PROFILE` constant in `src/route.js`.
 
+## Geocoder
+
+The page sends search requests to `geocode/` relative to its own address, and
+`serve.js` proxies `/geocode/` to `http://192.168.1.169:4000`, the over-coder
+API root. To use a different server, set `MAPPER_GEOCODE_URL` to its `http://`
+base URL, the path that `/v1/autocomplete` sits under, before running
+`./mapper`. No rebuild is needed.
+
 ## Deploying to apps.rkroll.com
 
 `deploy.conf` deploys mapper with
@@ -61,9 +72,7 @@ npm install                            # the build stage runs npm run build here
 ../../deploy.sh/deploy.sh update .     # later: rebuild and resync
 ```
 
-from `mapper/`, with deploy.sh checked out beside this repo. `deploy.conf`
-uses `APACHE_MOUNT_PATH` and `APACHE_PROXY_URLS`, which exist only on
-deploy.sh's `apache-mount-path` branch until it merges.
+from `mapper/`, with deploy.sh checked out beside this repo.
 
 What the deploy sets up:
 
@@ -72,9 +81,10 @@ What the deploy sets up:
   module's configure stage syncs `dist/` when it exists, never the sources or
   `node_modules`.
 - `/mapper/ors` proxied to `https://symon.rkroll.com:8443/routing/ors`.
-- Token auth over the whole `/mapper` mount, page and proxy alike. A request
+- `/mapper/geocode` proxied to `https://symon.rkroll.com:8443/geocode`.
+- Token auth over the whole `/mapper` mount, page and proxies alike. A request
   passes with `?token=<32 hex>` in its query string, and there are no cookies,
-  so the page forwards its own token on each routing request.
+  so the page forwards its own token on each routing and search request.
 - No certificate of its own: `letsencrypt` is left out of `DEPLOY_TYPES`
   because the `apps.rkroll.com` vhost owns the cert.
 

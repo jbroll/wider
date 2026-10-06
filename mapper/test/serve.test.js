@@ -128,6 +128,57 @@ test('the server proxies only paths under /ors/', async () => {
   }
 })
 
+async function fakeGeocoder() {
+  const seen = []
+  const server = http.createServer((req, res) => {
+    seen.push({ method: req.method, url: req.url })
+    res.writeHead(200, { 'Content-Type': 'application/json' })
+    res.end('{"type":"FeatureCollection","features":[]}')
+  })
+  await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve))
+  return { seen, url: `http://127.0.0.1:${server.address().port}`, close: () => new Promise((r) => server.close(r)) }
+}
+
+test('the server proxies /geocode/ to the geocoder with path and query', async () => {
+  const geo = await fakeGeocoder()
+  const { child, url } = await start({ MAPPER_GEOCODE_URL: geo.url })
+  try {
+    const res = await fetch(url + '/geocode/v1/autocomplete?text=120+state&token=abc')
+    assert.equal(res.status, 200)
+    assert.equal(await res.text(), '{"type":"FeatureCollection","features":[]}')
+    assert.deepEqual(geo.seen, [{ method: 'GET', url: '/v1/autocomplete?text=120+state&token=abc' }])
+  } finally {
+    child.kill()
+    await once(child, 'exit')
+    await geo.close()
+  }
+})
+
+test('the server answers 502 when the geocoder is down', async () => {
+  const { child, url } = await start({ MAPPER_GEOCODE_URL: `http://127.0.0.1:${await freePort()}` })
+  try {
+    const res = await fetch(url + '/geocode/v1/autocomplete?text=abc')
+    assert.equal(res.status, 502)
+  } finally {
+    child.kill()
+    await once(child, 'exit')
+  }
+})
+
+test('the server proxies only paths under /geocode/ to the geocoder', async () => {
+  const geo = await fakeGeocoder()
+  const { child, url } = await start({ MAPPER_GEOCODE_URL: geo.url })
+  try {
+    assert.equal((await fetch(url + '/geocode')).status, 404)
+    assert.equal((await fetch(url + '/geocodex/v1')).status, 404)
+    assert.deepEqual(geo.seen, [])
+  } finally {
+    child.kill()
+    await once(child, 'exit')
+    await geo.close()
+  }
+})
+
 function nonInternalIPv4() {
   const nets = os.networkInterfaces()
   for (const addrs of Object.values(nets)) {

@@ -6,7 +6,6 @@
   running hands the URL to the running Chromium, then the second launcher's
   exit trap kills the server behind the new tab.
 - Offline tiles and tile caching.
-- Geocoding search.
 - Reading the wider slot configuration.
 - Per-style memory of the Text, Buildings and label color settings. One setting
   shared by all five styles is a statement about the screen, not about Liberty.
