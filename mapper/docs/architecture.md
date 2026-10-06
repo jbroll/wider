@@ -209,7 +209,9 @@ properties on the root element, `--pin-scale`, `--icon-scale`, `--pin-text`,
 `--icon-scale`, which sizes the marker icons. The label's font size is
 `13px * --text-scale * --pin-scale`, so Text still scales pin labels and Label
 multiplies on top. The label's padding and corner radius are in `em`, and its
-line-height is unitless, so its background box grows with the text. Without
+line-height is `1.15em + 5px`, so its background box grows with the text. That
+line-height is 20px at the 13px base and grows a little slower than the text,
+which keeps large labels from getting tall boxes. Without
 that line-height the label inherits MapLibre's fixed `20px` from
 `.maplibregl-map`, and from 200% up the text is taller than its background. A preview is therefore cheap, and the pin pickers set the
 properties on every `input` with no frame coalescing; only `change`, a click

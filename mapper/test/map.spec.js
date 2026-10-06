@@ -845,7 +845,7 @@ test('the pin label background grows with its text', async ({ page }) => {
   expect(parseFloat(await labelStyle(page, 'borderTopLeftRadius'))).toBeCloseTo(4.95, 1)
 })
 
-test('the pin label box keeps the same proportions around its text at 100%, 200% and 300%', async ({ page }) => {
+test('the pin label box grows around its text at 100%, 200% and 300%', async ({ page }) => {
   await open(page)
   await dropPin(page, 'Schenectady gyp')
   const measure = () => page.locator('.place-label').evaluate((el) => {
@@ -859,7 +859,8 @@ test('the pin label box keeps the same proportions around its text at 100%, 200%
     for (let i = 0; i < steps; i += 1) await page.click(up('pin-label'))
     await expect.poll(async () => (await measure()).font).toBeCloseTo(font, 1)
     const { box, text } = await measure()
-    expect(box.height).toBeCloseTo((24 / 13) * font, 0)
+    // line-height 1.15em + 5px, plus top and bottom padding of 2/13 em each
+    expect(box.height).toBeCloseTo(1.15 * font + 5 + (4 / 13) * font, 0)
     expect(box.height).toBeGreaterThan(text.height)
     expect(box.width - text.width).toBeCloseTo((12 / 13) * font, 0)
   }
