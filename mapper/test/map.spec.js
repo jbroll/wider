@@ -834,6 +834,17 @@ test('Text and pin Label multiply on the pin label', async ({ page }) => {
   await expect.poll(async () => parseFloat(await labelStyle(page, 'fontSize'))).toBeCloseTo(21.45, 1)
 })
 
+test('the pin label background grows with its text', async ({ page }) => {
+  await open(page)
+  await dropPin(page, 'Middle')
+  expect(parseFloat(await labelStyle(page, 'paddingLeft'))).toBeCloseTo(6, 1)
+  await page.click(up('text'))
+  for (let i = 0; i < 5; i += 1) await page.click(up('pin-label'))
+  await expect.poll(async () => parseFloat(await labelStyle(page, 'paddingLeft'))).toBeCloseTo(9.9, 1)
+  expect(parseFloat(await labelStyle(page, 'paddingTop'))).toBeCloseTo(3.3, 1)
+  expect(parseFloat(await labelStyle(page, 'borderTopLeftRadius'))).toBeCloseTo(4.95, 1)
+})
+
 test('the pin text and background pickers recolor the label with no setStyle', async ({ page }) => {
   await open(page)
   await dropPin(page, 'Middle')
