@@ -385,6 +385,8 @@ html, body {
   /* 2px 6px and 3px at the 13px base size, in em so the box grows with the text. */
   padding: calc(2em / 13) calc(6em / 13);
   border-radius: calc(3em / 13);
+  /* MapLibre's .maplibregl-map sets a fixed 20px line-height; 20px at 13px, then scaling. */
+  line-height: calc(20 / 13);
   background: var(--pin-background, rgba(28, 28, 28, 0.82));
   color: var(--pin-text, #fff);
   text-shadow: var(--pin-halo, none);

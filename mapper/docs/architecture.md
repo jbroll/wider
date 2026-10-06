@@ -208,8 +208,10 @@ properties on the root element, `--pin-scale`, `--icon-scale`, `--pin-text`,
 `--pin-background` and `--pin-halo`. The `.place-label` rule reads all but
 `--icon-scale`, which sizes the marker icons. The label's font size is
 `13px * --text-scale * --pin-scale`, so Text still scales pin labels and Label
-multiplies on top. The label's padding and corner radius are in `em`, so its
-background box grows with the text. A preview is therefore cheap, and the pin pickers set the
+multiplies on top. The label's padding and corner radius are in `em`, and its
+line-height is unitless, so its background box grows with the text. Without
+that line-height the label inherits MapLibre's fixed `20px` from
+`.maplibregl-map`, and from 200% up the text is taller than its background. A preview is therefore cheap, and the pin pickers set the
 properties on every `input` with no frame coalescing; only `change`, a click
 on `×` or **No background**, and an Icon or Label step write `mapper.pins`. With a
 transparent background the label sits directly on the map, so `--pin-halo`
